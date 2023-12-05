@@ -19,6 +19,9 @@ const BOTTOM_EDGE: f32 = -300.0;
 
 const BALL_COLOR: Color = Color::WHITE;
 const BALL_SIZE: Vec3 = Vec3::new(10.0, 10.0, 0.0);
+const BALL_SPEED: f32 = 400.0;
+
+const WALL_COLOR: Color = Color::GRAY;
 
 #[derive(Resource)]
 struct BrickCounter(u16);
@@ -38,6 +41,9 @@ struct Brick;
 #[derive(Component)]
 struct Chunk;
 
+#[derive(Component)]
+struct WallBlock;
+
 #[derive(Resource)]
 struct ShowWindowInfoTimer(Timer);
 
@@ -47,6 +53,9 @@ impl ShowWindowInfoTimer {
     }
 }
 
+#[derive(Component)]
+struct Collilder;
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
@@ -55,7 +64,11 @@ fn main() {
         .insert_resource(ShowWindowInfoTimer::new())
         .add_systems(Startup, setup)
         .add_systems(Update, show_info)
-        .add_systems(Update,(move_paddle).chain())
+        .add_systems(FixedUpdate,(
+            (move_paddle, apply_velocity,)
+                .chain().before(check_paddle_position_edge),
+            check_paddle_position_edge
+        ))
         .run();
 }
 
@@ -93,7 +106,6 @@ fn show_info(windows: Query<&Window>, time: Res<Time>, mut timer: ResMut<ShowWin
 
 fn setup(
     mut commands: Commands,
-    windows: Query<&Window>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
@@ -128,6 +140,7 @@ fn setup(
             ..default()
         },
         Ball,
+        Velocity(Vec2::new(BALL_SPEED, BALL_SPEED)),
     ));
 
     //chunks
@@ -136,27 +149,43 @@ fn setup(
 
 fn move_paddle(
     keyboard_inpit: Res<Input<KeyCode>>,
-    mut query: Query<(&mut Transform, &mut Velocity), With<Paddle>>,
-    time: Res<Time>
+    mut query: Query<&mut Velocity, With<Paddle>>
 ) {
-    let (mut paddle_transform, mut paddle_velocity) = query.single_mut();
+    let mut paddle_velocity = query.single_mut();
 
-    if keyboard_inpit.pressed(KeyCode::Left) {
+    if keyboard_inpit.pressed(KeyCode::A) {
         paddle_velocity.0 = Vec2::new(-1.0, 0.0);
-    } else if keyboard_inpit.pressed(KeyCode::Right) {
+    } else if keyboard_inpit.pressed(KeyCode::D) {
         paddle_velocity.0 = Vec2::new(1.0, 0.0);
     } else {
         paddle_velocity.0 = Vec2::new(0.0, 0.0);
     }
 
-    paddle_velocity.0.x *= PADDLE_SPEED * time.delta_seconds();
+    paddle_velocity.x *= PADDLE_SPEED;
     
 
-    let new_paddle_position_x = 
-        paddle_transform.translation.x + paddle_velocity.0.x;
+    // let new_paddle_position_x = 
+    //     paddle_transform.translation.x + paddle_velocity.0.x;
+
+    // let left_bound = LEFT_EDGE - paddle_transform.scale.x / 2.0;
+    // let right_bound = RIGHT_EDGE - paddle_transform.scale.x / 2.0;
+
+    // paddle_transform.translation.x = new_paddle_position_x.clamp(left_bound, right_bound);
+}
+
+fn apply_velocity(mut query: Query<(&mut Transform, &Velocity)>, time: Res<Time>) {
+    for (mut transform, velocity) in &mut query {
+        transform.translation.x += velocity.x * time.delta_seconds();
+        transform.translation.y += velocity.y * time.delta_seconds();
+    }
+}
+
+fn check_paddle_position_edge(mut query: Query<&mut Transform, With<Paddle>>) {
+    let mut paddle_transform = query.single_mut();
 
     let left_bound = LEFT_EDGE - paddle_transform.scale.x / 2.0;
     let right_bound = RIGHT_EDGE - paddle_transform.scale.x / 2.0;
 
-    paddle_transform.translation.x = new_paddle_position_x.clamp(left_bound, right_bound);
+    // println!("{} {} {}", paddle_transform.translation.x, left_bound, right_bound);
+    paddle_transform.translation.x = paddle_transform.translation.x.clamp(left_bound, right_bound)
 }
