@@ -1,5 +1,5 @@
 use bevy::{
-    prelude::*, sprite::MaterialMesh2dBundle,
+    prelude::*, sprite::{MaterialMesh2dBundle, collide_aabb::{collide, Collision}},
 };
 
 
@@ -10,7 +10,7 @@ const PADDLE_SPEED:f32 = 400.0;
 const BRICK_SIZE: Vec2 = Vec2::new(10.0, 10.0);
 const BRICK_COLOR: Color = Color::GREEN;
 
-const BACKGROUND_COLOR: Color = Color::BLUE;
+const BACKGROUND_COLOR: Color = Color::BLACK;
 
 const RIGHT_EDGE: f32 = 500.0;
 const LEFT_EDGE: f32 = -500.0;
@@ -19,7 +19,7 @@ const BOTTOM_EDGE: f32 = -300.0;
 
 const BALL_COLOR: Color = Color::WHITE;
 const BALL_SIZE: Vec3 = Vec3::new(10.0, 10.0, 0.0);
-const BALL_SPEED: f32 = 400.0;
+const BALL_SPEED: f32 = 200.0;
 
 const WALL_COLOR: Color = Color::GRAY;
 
@@ -53,8 +53,15 @@ impl ShowWindowInfoTimer {
     }
 }
 
-#[derive(Component)]
-struct Collilder;
+enum CollilderType {
+    WALL,
+    CHUNK,
+    BRICK,
+    PADDLE,
+}
+
+#[derive(Component, Deref, DerefMut)]
+struct Collilder(CollilderType);
 
 fn main() {
     App::new()
@@ -67,7 +74,9 @@ fn main() {
         .add_systems(FixedUpdate,(
             (move_paddle, apply_velocity,)
                 .chain().before(check_paddle_position_edge),
-            check_paddle_position_edge
+            check_paddle_position_edge,
+            check_ball_position_edge,
+            check_collider_paddle,
         ))
         .run();
 }
@@ -112,12 +121,15 @@ fn setup(
 
     //camera
     commands.spawn(Camera2dBundle::default());
+    
+
 
     //paddle
+    let paddle_translation = Vec3::new(0.0, -240.0, 0.0);
     commands.spawn((
         SpriteBundle {
             transform: Transform {
-                translation: Vec3::new(0.0, -240.0,0.0),
+                translation: paddle_translation,
                 scale: PADDLE_SIZE,
                 ..default()
             },
@@ -129,14 +141,19 @@ fn setup(
         },
         Paddle,
         Velocity(Vec2::new(0.0,0.0)),
+        Collilder(CollilderType::PADDLE),
     ));
 
+    // let mut rng = rand::thread_rng();
+
+
     //ball
+    let ball_translation = Vec3::new(paddle_translation.x, paddle_translation.y, 0.0);
     commands.spawn((
         MaterialMesh2dBundle {
             mesh: meshes.add(shape::Circle::default().into()).into(),
             material: materials.add(ColorMaterial::from(BALL_COLOR)),
-            transform: Transform::from_translation(Vec3::new(0.0,0.0,0.0)).with_scale(BALL_SIZE),
+            transform: Transform::from_translation(ball_translation).with_scale(BALL_SIZE),
             ..default()
         },
         Ball,
@@ -183,9 +200,57 @@ fn apply_velocity(mut query: Query<(&mut Transform, &Velocity)>, time: Res<Time>
 fn check_paddle_position_edge(mut query: Query<&mut Transform, With<Paddle>>) {
     let mut paddle_transform = query.single_mut();
 
-    let left_bound = LEFT_EDGE - paddle_transform.scale.x / 2.0;
+    let left_bound = LEFT_EDGE + paddle_transform.scale.x / 2.0;
     let right_bound = RIGHT_EDGE - paddle_transform.scale.x / 2.0;
 
     // println!("{} {} {}", paddle_transform.translation.x, left_bound, right_bound);
     paddle_transform.translation.x = paddle_transform.translation.x.clamp(left_bound, right_bound)
+}
+
+fn check_ball_position_edge(
+    mut commands: Commands, 
+    mut query: Query<(Entity, &Transform, &mut Velocity), With<Ball>>) 
+{   
+    for (entity, ball_transform,  mut velocity) in &mut query {
+        if ball_transform.translation.x >= RIGHT_EDGE || ball_transform.translation.x <= LEFT_EDGE{
+            velocity.x = -velocity.x
+        }
+    
+        if ball_transform.translation.y >= TOP_EDGE {
+            velocity.y = -velocity.y
+        } else if ball_transform.translation.y < BOTTOM_EDGE {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+fn check_collider_paddle(
+    paddle_query: Query<&Transform, With<Paddle>>,
+    mut ball_query: Query<(&Transform, &mut Velocity), With<Ball>>,
+) {
+    let paddle_transform = paddle_query.single();
+
+    for (ball_transform, mut velocity) in &mut ball_query {
+        let collision = collide(
+            ball_transform.translation,
+            ball_transform.scale.truncate(),
+            paddle_transform.translation,
+            paddle_transform.scale.truncate(),
+        );
+        
+        if let Some(collision) = collision {
+            // match collision {
+                // Collision::Left| Collision::Right | Collision::Top  => {
+            let point = ((
+                ball_transform.translation.x - (paddle_transform.translation.x - paddle_transform.scale.x / 2.0)
+            ) / paddle_transform.scale.x).clamp(0.0, 1.0);
+
+            // println!("point {}", point);
+            velocity.x = (point - 0.5) / 0.5 * BALL_SPEED;
+            velocity.y = (2.0*BALL_SPEED.powf(2.0) - velocity.x.powf(2.0)).sqrt();
+                // },
+                // _ => {}
+            // }
+        }
+    }
 }
