@@ -1,5 +1,5 @@
 use bevy::{
-    prelude::*, sprite::{MaterialMesh2dBundle, collide_aabb::{collide, Collision}},
+    prelude::*, sprite::{MaterialMesh2dBundle, collide_aabb::{collide}},
 };
 
 
@@ -7,7 +7,7 @@ const PADDLE_SIZE: Vec3 = Vec3::new(80.0, 10.0, 0.0);
 const PADDLE_COLOR: Color = Color::WHITE;
 const PADDLE_SPEED:f32 = 400.0;
 
-const BRICK_SIZE: Vec2 = Vec2::new(10.0, 10.0);
+const BRICK_SIZE: Vec3 = Vec3::new(10.0, 10.0,0.0);
 const BRICK_COLOR: Color = Color::GREEN;
 
 const BACKGROUND_COLOR: Color = Color::BLACK;
@@ -22,6 +22,8 @@ const BALL_SIZE: Vec3 = Vec3::new(10.0, 10.0, 0.0);
 const BALL_SPEED: f32 = 200.0;
 
 const WALL_COLOR: Color = Color::GRAY;
+
+const CHUNK_SIZE: Vec3 = Vec3::new(150.0,150.0,0.0);
 
 #[derive(Resource)]
 struct BrickCounter(u16);
@@ -38,8 +40,15 @@ struct Paddle;
 #[derive(Component)]
 struct Brick;
 
-#[derive(Component)]
+#[derive(Component,Default)]
 struct Chunk;
+#[derive(Bundle, Default)]
+struct ChunkBundle {
+    transform:Transform,
+    chunk: Chunk,
+    view_visibility: ViewVisibility
+}
+
 
 #[derive(Component)]
 struct WallBlock;
@@ -161,6 +170,30 @@ fn setup(
     ));
 
     //chunks
+    let chunk = commands.spawn(
+        ChunkBundle {
+            transform: Transform::from_translation( 
+                Vec3::new(CHUNK_SIZE.x / 2.0, CHUNK_SIZE.y / 2.0, 0.0)
+            ).with_scale(CHUNK_SIZE),
+            chunk:Chunk,
+            ..default()
+        }
+    ).id();
+
+    let brick = commands.spawn((
+        SpriteBundle {
+            sprite: Sprite {
+                color: BRICK_COLOR,
+                ..default()
+            },
+            transform: Transform::default().with_scale(BRICK_SIZE),
+            ..default()
+        },
+        Brick,
+        Collilder(CollilderType::BRICK),
+    )).id();
+
+    commands.entity(chunk).add_child(brick);
 
 }
 
@@ -199,7 +232,7 @@ fn apply_velocity(mut query: Query<(&mut Transform, &Velocity)>, time: Res<Time>
 
 fn check_paddle_position_edge(mut query: Query<&mut Transform, With<Paddle>>) {
     let mut paddle_transform = query.single_mut();
-
+    
     let left_bound = LEFT_EDGE + paddle_transform.scale.x / 2.0;
     let right_bound = RIGHT_EDGE - paddle_transform.scale.x / 2.0;
 
