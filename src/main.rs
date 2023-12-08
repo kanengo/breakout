@@ -1,5 +1,5 @@
 use bevy::{
-    prelude::*, sprite::{MaterialMesh2dBundle, collide_aabb::{collide}},
+    prelude::*, sprite::{MaterialMesh2dBundle, collide_aabb::collide, Anchor},
 };
 
 
@@ -9,13 +9,14 @@ const PADDLE_SPEED:f32 = 400.0;
 
 const BRICK_SIZE: Vec3 = Vec3::new(10.0, 10.0,0.0);
 const BRICK_COLOR: Color = Color::GREEN;
+const GAP_BETWEEN_BRICKS: f32 = 2.0;
 
 const BACKGROUND_COLOR: Color = Color::BLACK;
 
-const RIGHT_EDGE: f32 = 500.0;
-const LEFT_EDGE: f32 = -500.0;
-const TOP_EDGE: f32 = 300.0;
-const BOTTOM_EDGE: f32 = -300.0;
+const RIGHT_EDGE: f32 = 640.0;
+const LEFT_EDGE: f32 = -640.0;
+const TOP_EDGE: f32 = 360.0;
+const BOTTOM_EDGE: f32 = -360.0;
 
 const BALL_COLOR: Color = Color::WHITE;
 const BALL_SIZE: Vec3 = Vec3::new(10.0, 10.0, 0.0);
@@ -23,7 +24,7 @@ const BALL_SPEED: f32 = 200.0;
 
 const WALL_COLOR: Color = Color::GRAY;
 
-const CHUNK_SIZE: Vec3 = Vec3::new(150.0,150.0,0.0);
+const CHUNK_SIZE: Vec3 = Vec3::new(120.0,120.0,0.0);
 
 #[derive(Resource)]
 struct BrickCounter(u16);
@@ -42,13 +43,6 @@ struct Brick;
 
 #[derive(Component,Default)]
 struct Chunk;
-#[derive(Bundle, Default)]
-struct ChunkBundle {
-    transform:Transform,
-    chunk: Chunk,
-    view_visibility: ViewVisibility
-}
-
 
 #[derive(Component)]
 struct WallBlock;
@@ -79,7 +73,7 @@ fn main() {
         .insert_resource(ClearColor(BACKGROUND_COLOR))
         .insert_resource(ShowWindowInfoTimer::new())
         .add_systems(Startup, setup)
-        .add_systems(Update, show_info)
+        .add_systems(Update, (show_info, gizmos_system))
         .add_systems(FixedUpdate,(
             (move_paddle, apply_velocity,)
                 .chain().before(check_paddle_position_edge),
@@ -122,6 +116,8 @@ fn show_info(windows: Query<&Window>, time: Res<Time>, mut timer: ResMut<ShowWin
     }
 }
 
+
+
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -131,7 +127,7 @@ fn setup(
     //camera
     commands.spawn(Camera2dBundle::default());
     
-
+    
 
     //paddle
     let paddle_translation = Vec3::new(0.0, -240.0, 0.0);
@@ -155,7 +151,6 @@ fn setup(
 
     // let mut rng = rand::thread_rng();
 
-
     //ball
     let ball_translation = Vec3::new(paddle_translation.x, paddle_translation.y, 0.0);
     commands.spawn((
@@ -170,30 +165,37 @@ fn setup(
     ));
 
     //chunks
-    let chunk = commands.spawn(
-        ChunkBundle {
-            transform: Transform::from_translation( 
-                Vec3::new(CHUNK_SIZE.x / 2.0, CHUNK_SIZE.y / 2.0, 0.0)
-            ).with_scale(CHUNK_SIZE),
-            chunk:Chunk,
-            ..default()
-        }
-    ).id();
-
-    let brick = commands.spawn((
-        SpriteBundle {
-            sprite: Sprite {
-                color: BRICK_COLOR,
-                ..default()
-            },
-            transform: Transform::default().with_scale(BRICK_SIZE),
+    let chunk = commands.spawn((
+        SpatialBundle {
+            visibility: Visibility::Visible,
+            inherited_visibility: InheritedVisibility::VISIBLE,
+            transform: Transform::from_translation(Vec3::new(CHUNK_SIZE.x / 2.0, CHUNK_SIZE.y / 2.0, 0.0)),
             ..default()
         },
-        Brick,
-        Collilder(CollilderType::BRICK),
+        Anchor::BottomLeft,
+        Chunk,
     )).id();
 
-    commands.entity(chunk).add_child(brick);
+    let brick_start_translation = Vec3::new((-CHUNK_SIZE.x+BRICK_SIZE.x + GAP_BETWEEN_BRICKS)/ 2.0,0.0,0.0);
+    for x in 0..11 {
+        let brick_translation = Vec3::new(
+             brick_start_translation.x + (x as f32) * (BRICK_SIZE.x + GAP_BETWEEN_BRICKS), 0.0,0.0);
+        let brick = commands.spawn((
+            SpriteBundle {
+                sprite: Sprite {
+                    color: BRICK_COLOR,
+                    ..default()
+                },
+                transform: Transform::from_translation(brick_translation).with_scale(BRICK_SIZE),
+                ..default()
+            },
+            Brick,
+            Collilder(CollilderType::BRICK),
+        )).id();
+    
+        commands.entity(chunk).add_child(brick);
+    }
+    
 
 }
 
@@ -223,6 +225,13 @@ fn move_paddle(
     // paddle_transform.translation.x = new_paddle_position_x.clamp(left_bound, right_bound);
 }
 
+fn gizmos_system(mut gizmos:Gizmos, query: Query<&Transform, With<Chunk>>) {
+    for transform in &query {
+        let pos = transform.translation.xy();
+        gizmos.rect_2d(pos, 0., CHUNK_SIZE.xy(), Color::WHITE);
+    }
+}
+
 fn apply_velocity(mut query: Query<(&mut Transform, &Velocity)>, time: Res<Time>) {
     for (mut transform, velocity) in &mut query {
         transform.translation.x += velocity.x * time.delta_seconds();
@@ -245,13 +254,15 @@ fn check_ball_position_edge(
     mut query: Query<(Entity, &Transform, &mut Velocity), With<Ball>>) 
 {   
     for (entity, ball_transform,  mut velocity) in &mut query {
-        if ball_transform.translation.x >= RIGHT_EDGE || ball_transform.translation.x <= LEFT_EDGE{
-            velocity.x = -velocity.x
+        if ball_transform.translation.x + BALL_SIZE.x >= RIGHT_EDGE {
+            velocity.x = -velocity.x.abs()
+        } else if ball_transform.translation.x - BALL_SIZE.x <= LEFT_EDGE {
+            velocity.x = velocity.x.abs()
         }
     
-        if ball_transform.translation.y >= TOP_EDGE {
-            velocity.y = -velocity.y
-        } else if ball_transform.translation.y < BOTTOM_EDGE {
+        if ball_transform.translation.y + BALL_SIZE.y >= TOP_EDGE {
+            velocity.y = -velocity.y.abs()
+        } else if ball_transform.translation.y - BALL_SIZE.y < BOTTOM_EDGE {
             commands.entity(entity).despawn();
         }
     }
@@ -271,7 +282,7 @@ fn check_collider_paddle(
             paddle_transform.scale.truncate(),
         );
         
-        if let Some(collision) = collision {
+        if let Some(_collision) = collision {
             // match collision {
                 // Collision::Left| Collision::Right | Collision::Top  => {
             let point = ((
