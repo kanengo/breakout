@@ -1,6 +1,8 @@
+use std::thread::spawn;
 use bevy::{
     prelude::*, sprite::{MaterialMesh2dBundle, collide_aabb::collide, Anchor},
 };
+use crate::ColliderType::{BRICK, CHUNK};
 
 
 const PADDLE_SIZE: Vec3 = Vec3::new(80.0, 10.0, 0.0);
@@ -11,7 +13,7 @@ const BRICK_SIZE: Vec3 = Vec3::new(10.0, 10.0,0.0);
 const BRICK_COLOR: Color = Color::GREEN;
 const GAP_BETWEEN_BRICKS: f32 = 2.0;
 
-const BACKGROUND_COLOR: Color = Color::BLACK;
+const BACKGROUND_COLOR: Color = Color::BLUE;
 
 const RIGHT_EDGE: f32 = 640.0;
 const LEFT_EDGE: f32 = -640.0;
@@ -24,7 +26,8 @@ const BALL_SPEED: f32 = 200.0;
 
 const WALL_COLOR: Color = Color::GRAY;
 
-const CHUNK_SIZE: Vec3 = Vec3::new(120.0,120.0,0.0);
+const CHUNK_BRICK_SIZE: Vec2 = Vec2::new(8.0, 8.0);
+const CHUNK_SIZE: Vec3 = Vec3::new(CHUNK_BRICK_SIZE.x * (BRICK_SIZE.x + GAP_BETWEEN_BRICKS),CHUNK_BRICK_SIZE.y * (BRICK_SIZE.y + GAP_BETWEEN_BRICKS),0.0);
 
 #[derive(Resource)]
 struct BrickCounter(u16);
@@ -56,7 +59,7 @@ impl ShowWindowInfoTimer {
     }
 }
 
-enum CollilderType {
+enum ColliderType {
     WALL,
     CHUNK,
     BRICK,
@@ -64,7 +67,7 @@ enum CollilderType {
 }
 
 #[derive(Component, Deref, DerefMut)]
-struct Collilder(CollilderType);
+struct Collider(ColliderType);
 
 fn main() {
     App::new()
@@ -80,6 +83,7 @@ fn main() {
             check_paddle_position_edge,
             check_ball_position_edge,
             check_collider_paddle,
+            check_collider_chunk,
         ))
         .run();
 }
@@ -146,7 +150,7 @@ fn setup(
         },
         Paddle,
         Velocity(Vec2::new(0.0,0.0)),
-        Collilder(CollilderType::PADDLE),
+        Collider(ColliderType::PADDLE),
     ));
 
     // let mut rng = rand::thread_rng();
@@ -164,50 +168,78 @@ fn setup(
         Velocity(Vec2::new(BALL_SPEED, BALL_SPEED)),
     ));
 
-    //chunks
-    let chunk = commands.spawn((
-        SpatialBundle {
-            visibility: Visibility::Visible,
-            inherited_visibility: InheritedVisibility::VISIBLE,
-            transform: Transform::from_translation(Vec3::new(CHUNK_SIZE.x / 2.0, CHUNK_SIZE.y / 2.0, 0.0)),
-            ..default()
-        },
-        Anchor::BottomLeft,
-        Chunk,
-    )).id();
+    let max_chunk_col = (RIGHT_EDGE / CHUNK_SIZE.x).ceil();
+    let max_chunk_row = (TOP_EDGE / CHUNK_SIZE.y).ceil();
 
-    let brick_start_translation = Vec3::new((-CHUNK_SIZE.x+BRICK_SIZE.x + GAP_BETWEEN_BRICKS)/ 2.0,0.0,0.0);
-    for x in 0..11 {
-        let brick_translation = Vec3::new(
-             brick_start_translation.x + (x as f32) * (BRICK_SIZE.x + GAP_BETWEEN_BRICKS), 0.0,0.0);
-        let brick = commands.spawn((
-            SpriteBundle {
-                sprite: Sprite {
-                    color: BRICK_COLOR,
-                    ..default()
-                },
-                transform: Transform::from_translation(brick_translation).with_scale(BRICK_SIZE),
-                ..default()
-            },
-            Brick,
-            Collilder(CollilderType::BRICK),
-        )).id();
-    
-        commands.entity(chunk).add_child(brick);
+    for c in 0..max_chunk_col as i32 {
+        for r in 0..max_chunk_row as i32 {
+            let x = CHUNK_SIZE.x / 2.0 + (CHUNK_SIZE.x * c as f32);
+            let y = CHUNK_SIZE.y / 2.0 + (CHUNK_SIZE.y * r as f32);
+
+            let chunk_pos = Vec2::new(x, y);
+            spawn_chunk(&mut commands,chunk_pos);
+
+            let chunk_pos = Vec2::new(-x, y);
+            spawn_chunk(&mut commands,chunk_pos);
+        }
     }
-    
-
 }
 
+fn spawn_chunk(commands: &mut Commands, chunk_pos: Vec2) {
+    let chunk_entity = commands.spawn((
+        SpatialBundle {
+            transform: Transform::from_translation(chunk_pos.extend(0.0)),
+            ..default()
+        },
+        Chunk,
+        Collider(CHUNK)
+    )).id();
+
+    //fill brick
+    let start_pos = Vec2::new((-CHUNK_SIZE.x +BRICK_SIZE.x + GAP_BETWEEN_BRICKS) / 2.0, (-CHUNK_SIZE.y + BRICK_SIZE.y + GAP_BETWEEN_BRICKS) / 2.0);
+    for brick_col in 0..CHUNK_BRICK_SIZE.x as i32 {
+        let bc = brick_col as f32;
+        for brick_row in 0..CHUNK_BRICK_SIZE.y as i32 {
+            let br = brick_row as f32;
+            let brick_pos = Vec2::new(
+                start_pos.x + (BRICK_SIZE.x + GAP_BETWEEN_BRICKS) * bc,
+                start_pos.y + (BRICK_SIZE.y + GAP_BETWEEN_BRICKS) * br,
+            );
+            if (chunk_pos.x + brick_pos.x).abs() + BRICK_SIZE.x / 2.0 > RIGHT_EDGE {
+                continue
+            }
+            if (chunk_pos.y + brick_pos.y).abs() + BRICK_SIZE.y / 2.0 > TOP_EDGE {
+                continue
+            }
+
+            let brick = commands.spawn((
+                SpriteBundle {
+                    sprite: Sprite {
+                        color: BRICK_COLOR,
+                        ..default()
+                    },
+                    // global_transform: GlobalTransform::from(Transform::IDENTITY),
+                    transform: Transform::from_translation(brick_pos.extend(0.0)).with_scale(BRICK_SIZE),
+                    ..default()
+                },
+                Brick,
+                Collider(BRICK)
+            )).id();
+            commands.entity(chunk_entity).add_child(brick);
+        }
+    }
+}
+
+
 fn move_paddle(
-    keyboard_inpit: Res<Input<KeyCode>>,
+    keyboard_input: Res<Input<KeyCode>>,
     mut query: Query<&mut Velocity, With<Paddle>>
 ) {
     let mut paddle_velocity = query.single_mut();
 
-    if keyboard_inpit.pressed(KeyCode::A) {
+    if keyboard_input.pressed(KeyCode::A) {
         paddle_velocity.0 = Vec2::new(-1.0, 0.0);
-    } else if keyboard_inpit.pressed(KeyCode::D) {
+    } else if keyboard_input.pressed(KeyCode::D) {
         paddle_velocity.0 = Vec2::new(1.0, 0.0);
     } else {
         paddle_velocity.0 = Vec2::new(0.0, 0.0);
@@ -297,4 +329,25 @@ fn check_collider_paddle(
             // }
         }
     }
+}
+
+fn check_collider_chunk(
+    mut ball_query: Query<(&Transform, &mut Velocity), With<Ball>>,
+    chunk_query: Query<(&Transform, &Children), With<Chunk>>,
+) {
+    for (ball_transform, mut ball_velocity) in &mut ball_query {
+        for (chunk_transform, children) in &chunk_query {
+            let collision = collide(
+                ball_transform.translation,
+                ball_transform.scale.truncate(),
+                chunk_transform.translation,
+                Vec2::new(CHUNK_SIZE.x, CHUNK_SIZE.y),
+            );
+
+            if collision.is_some() {
+                println!("in chunk:{} {}", chunk_transform.translation.x, chunk_transform.translation.y)
+            }
+        }
+    }
+
 }
