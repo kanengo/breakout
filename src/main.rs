@@ -101,15 +101,14 @@ fn main() {
         .insert_resource(ShowWindowInfoTimer::new())
         .insert_resource(GenBallController::new())
         .add_systems(Startup, setup)
-        .add_systems(Update, (gen_ball))
-        .add_systems(FixedUpdate,(
-            (move_paddle, apply_velocity)
-                .chain().before( check_paddle_position_edge),
-            check_paddle_position_edge,
+        // .add_systems(Update, (gen_ball))
+        .add_systems(FixedUpdate,
+            (move_paddle, apply_velocity,
+             check_paddle_position_edge,
             check_ball_position_edge,
             check_collider_paddle,
-            check_collider_chunk,
-        ))
+            check_collider_chunk).chain()
+        )
         // .add_systems(Update,(gen_ball))
         .run();
 }
@@ -401,70 +400,93 @@ fn check_collider_chunk(
                 continue
             }
             // println!("in chunk:{} {}", chunk_transform.translation.x, chunk_transform.translation.y)
+            let mut shortest: Option<Entity> = None;
             for &child in children {
                 if let Ok(brick_item) = brick_query.get_mut(child) {
-                    let (global_transform,transform, (brick_option,_)) = brick_item;
-                    
-                    let collision = collide(
-                        ball_transform.translation,
-                        ball_transform.scale.truncate(),
-                        global_transform.translation(),
-                        transform.scale.truncate(),
-                    );
+                    let (global_transform, _, (_, _)) = brick_item;
 
-                    if collision.is_none() {
-                        if brick_option.is_none() {
-                            if ball_transform.translation.y - BALL_SIZE.y / 2.0 <= 11.0 &&
-                                ball_transform.translation.y + BALL_SIZE.y / 2.0 >= 1.0 {
-                                    println!("go wall translation:{} {}", ball_transform.translation.x, ball_transform.translation.y)
-                                }
+                    let distance = ball_transform.translation.distance(global_transform.translation());
+                    match shortest {
+                        Some(last) => {
+                            let (last_global_transform, _, (_, _)) = brick_query.get(last).unwrap();
+                            if ball_transform.translation.distance(last_global_transform.translation()) > distance {
+                                shortest = Some(child)
+                            }
                         }
-                        continue
-                    }
-
-                    if let Some(mut brick) = brick_option {
-                        if brick.destroy {
-                            continue;
+                        None => {
+                            shortest = Some(child);
                         }
-
-                        brick.destroy = true;
-                        commands.entity(child).despawn();
-                    } else {
-                        println!("wall translation:{} {} ball translation: {} {}", global_transform.translation().y + BRICK_SIZE.y / 2.0, global_transform.translation().y,
-                        ball_transform.translation.x, ball_transform.translation.y)
-                    }
-
-                    // println!("collision brick: {} {}",brick_translation.x, brick_translation.y);
-                    let mut reflect_x = false;
-                    let mut reflect_y = false;
-
-                    let collision= collision.unwrap();
-                    match collision {
-                        Collision::Left => reflect_x = ball_velocity.x > 0.0,
-                        Collision::Right => reflect_x = ball_velocity.x < 0.0,
-                        Collision::Top => reflect_y = ball_velocity.y < 0.0,
-                        Collision::Bottom => reflect_y = ball_velocity.y > 0.0,
-                        Collision::Inside => {
-                            println!("gothrough!! now:{} {} old:{} {} brick:{} {}",ball_transform.translation.x, ball_transform.translation.y,
-                            ball_transform.translation.x + ball_velocity.x, ball_transform.translation.y + ball_velocity.y,
-                            global_transform.translation().x, global_transform.translation().y
-                            )
-                        }
-                    }
-
-                    if reflect_x {
-                        ball_velocity.x = -ball_velocity.x;
-                    }
-
-                    if reflect_y {
-                        ball_velocity.y = -ball_velocity.y;
                     }
                 }
             }
 
-            // if collided {
-            //     break
-            // }
+            if shortest.is_none() {
+                break;
+            }
+
+            let target = shortest.unwrap();
+            let (global_transform, transform, (brick_option, _)) = brick_query.get_mut(target).unwrap();
+            let scale = transform.scale.truncate();
+            let collision = collide(
+                ball_transform.translation,
+                ball_transform.scale.truncate(),
+                global_transform.translation(),
+                Vec2::new(scale.x + GAP_BETWEEN_BRICKS, scale.y + GAP_BETWEEN_BRICKS),
+            );
+
+            if collision.is_none() {
+                if brick_option.is_none() {
+                    if ball_transform.translation.y - BALL_SIZE.y / 2.0 <= 11.0 &&
+                        ball_transform.translation.y + BALL_SIZE.y / 2.0 >= 1.0 {
+                            println!("go wall translation:{} {}", ball_transform.translation.x, ball_transform.translation.y)
+                        }
+                }
+                continue
+            }
+
+            if let Some(mut brick) = brick_option {
+                if brick.destroy {
+                    continue;
+                }
+
+                brick.destroy = true;
+                commands.entity(target).despawn();
+            } else {
+                println!("wall translation:{} {} ball translation: {} {} ball velocity: {} {} collision: {:?}", global_transform.translation().x , global_transform.translation().y,
+                ball_transform.translation.x, ball_transform.translation.y, ball_velocity.x, ball_velocity.y, collision)
+            }
+
+            // println!("collision brick: {} {}",brick_translation.x, brick_translation.y);
+            let mut reflect_x = false;
+            let mut reflect_y = false;
+
+            let collision= collision.unwrap();
+            match collision {
+                Collision::Left => reflect_x = ball_velocity.x > 0.0,
+                Collision::Right => reflect_x = ball_velocity.x < 0.0,
+                Collision::Top => reflect_y = ball_velocity.y < 0.0,
+                Collision::Bottom => reflect_y = ball_velocity.y > 0.0,
+                Collision::Inside => {
+                    println!("gothrough!! now:{} {} old:{} {} brick:{} {}",ball_transform.translation.x, ball_transform.translation.y,
+                    ball_transform.translation.x + ball_velocity.x, ball_transform.translation.y + ball_velocity.y,
+                    global_transform.translation().x, global_transform.translation().y
+                    )
+                }
+            }
+
+            if reflect_x {
+                collided = true;
+                ball_velocity.x = -ball_velocity.x;
+            }
+
+            if reflect_y {
+                collided = true;
+                ball_velocity.y = -ball_velocity.y;
+            }
+
+            if collided {
+                break
+            }
         }
     }
     // println!("delta:{}",SystemTime::now().duration_since(start_time).unwrap().as_micros())
