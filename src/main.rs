@@ -1,3 +1,5 @@
+
+
 use bevy::{
     prelude::*, sprite::{MaterialMesh2dBundle, collide_aabb::collide, Mesh2dHandle},
 };
@@ -99,9 +101,9 @@ fn main() {
         .insert_resource(ShowWindowInfoTimer::new())
         .insert_resource(GenBallController::new())
         .add_systems(Startup, setup)
-        // .add_systems(Update, (show_info))
+        .add_systems(Update, (gen_ball))
         .add_systems(FixedUpdate,(
-            (move_paddle, apply_velocity,gen_ball)
+            (move_paddle, apply_velocity)
                 .chain().before( check_paddle_position_edge),
             check_paddle_position_edge,
             check_ball_position_edge,
@@ -314,6 +316,7 @@ fn gizmos_system(mut gizmos:Gizmos, query: Query<&Transform, With<Chunk>>) {
 }
 
 fn apply_velocity(mut query: Query<(&mut Transform, &Velocity)>, time: Res<Time>) {
+    // println!("delta: {}", time.delta_seconds() * 1000.0);
     for (mut transform, velocity) in &mut query {
         transform.translation.x += velocity.x * time.delta_seconds();
         transform.translation.y += velocity.y * time.delta_seconds();
@@ -381,8 +384,9 @@ fn check_collider_chunk(
     mut commands: Commands,
     mut ball_query: Query<(&Transform, &mut Velocity), With<Ball>>,
     chunk_query: Query<(&Transform, &Children), With<Chunk>>,
-    mut brick_query: Query<(&GlobalTransform, &Transform, Option<&mut Brick>)>,
+    mut brick_query: Query<(&GlobalTransform, &Transform, AnyOf<(&mut Brick, &WallBlock)>)>,
 ) {
+    // let start_time = SystemTime::now();
     for (ball_transform, mut ball_velocity) in &mut ball_query {
         for (chunk_transform, children) in &chunk_query {
             let mut collided = false;
@@ -399,17 +403,22 @@ fn check_collider_chunk(
             // println!("in chunk:{} {}", chunk_transform.translation.x, chunk_transform.translation.y)
             for &child in children {
                 if let Ok(brick_item) = brick_query.get_mut(child) {
-                    let (brick_global_transform,transform, brick_option) = brick_item;
+                    let (global_transform,transform, (brick_option,_)) = brick_item;
                     
                     let collision = collide(
                         ball_transform.translation,
                         ball_transform.scale.truncate(),
-                        brick_global_transform.translation(),
+                        global_transform.translation(),
                         transform.scale.truncate(),
                     );
 
-
                     if collision.is_none() {
+                        if brick_option.is_none() {
+                            if ball_transform.translation.y - BALL_SIZE.y / 2.0 <= 11.0 &&
+                                ball_transform.translation.y + BALL_SIZE.y / 2.0 >= 1.0 {
+                                    println!("go wall translation:{} {}", ball_transform.translation.x, ball_transform.translation.y)
+                                }
+                        }
                         continue
                     }
 
@@ -417,8 +426,12 @@ fn check_collider_chunk(
                         if brick.destroy {
                             continue;
                         }
+
                         brick.destroy = true;
                         commands.entity(child).despawn();
+                    } else {
+                        println!("wall translation:{} {} ball translation: {} {}", global_transform.translation().y + BRICK_SIZE.y / 2.0, global_transform.translation().y,
+                        ball_transform.translation.x, ball_transform.translation.y)
                     }
 
                     // println!("collision brick: {} {}",brick_translation.x, brick_translation.y);
@@ -434,7 +447,7 @@ fn check_collider_chunk(
                         Collision::Inside => {
                             println!("gothrough!! now:{} {} old:{} {} brick:{} {}",ball_transform.translation.x, ball_transform.translation.y,
                             ball_transform.translation.x + ball_velocity.x, ball_transform.translation.y + ball_velocity.y,
-                            brick_global_transform.translation().x, brick_global_transform.translation().y
+                            global_transform.translation().x, global_transform.translation().y
                             )
                         }
                     }
@@ -446,24 +459,81 @@ fn check_collider_chunk(
                     if reflect_y {
                         ball_velocity.y = -ball_velocity.y;
                     }
-
-                    collided = true;
-                    break
                 }
             }
 
-            if collided {
-                break
-            }
+            // if collided {
+            //     break
+            // }
         }
     }
+    // println!("delta:{}",SystemTime::now().duration_since(start_time).unwrap().as_micros())
+}
+
+fn check_collider(
+    mut commands: Commands,
+    mut ball_query: Query<(&Transform, &mut Velocity), With<Ball>>,
+    mut brick_query: Query<(Entity,&GlobalTransform, &Transform, AnyOf<(&mut Brick, &WallBlock)>)>,
+) {
+    // let start_time = SystemTime::now();
+    for (ball_transform, mut ball_velocity) in &mut ball_query {
+        for (entity, global_transform, transform,(brick_option, _)) in &mut brick_query {
+            let collision = collide(
+                ball_transform.translation,
+                ball_transform.scale.truncate(),
+                global_transform.translation(),
+                transform.scale.truncate(),
+            );
+
+            if collision.is_none() {
+                continue
+            }
+
+            if let Some(mut brick) = brick_option {
+                if brick.destroy {
+                    continue;
+                }
+                brick.destroy = true;
+                commands.entity(entity).despawn();
+            }
+
+            // println!("collision brick: {} {}",brick_translation.x, brick_translation.y);
+            let mut reflect_x = false;
+            let mut reflect_y = false;
+
+            let collision= collision.unwrap();
+            match collision {
+                Collision::Left => reflect_x = ball_velocity.x > 0.0,
+                Collision::Right => reflect_x = ball_velocity.x < 0.0,
+                Collision::Top => reflect_y = ball_velocity.y < 0.0,
+                Collision::Bottom => reflect_y = ball_velocity.y > 0.0,
+                Collision::Inside => {
+                    println!("gothrough!! now:{} {} old:{} {} brick:{} {}",ball_transform.translation.x, ball_transform.translation.y,
+                    ball_transform.translation.x + ball_velocity.x, ball_transform.translation.y + ball_velocity.y,
+                    global_transform.translation().x, global_transform.translation().y
+                    )
+                }
+            }
+
+            if reflect_x {
+                ball_velocity.x = -ball_velocity.x;
+            }
+
+            if reflect_y {
+                ball_velocity.y = -ball_velocity.y;
+            }
+
+            break
+        }
+    }
+    // println!("delta:{}",SystemTime::now().duration_since(start_time).unwrap().as_micros())
 }
 
 fn gen_ball(
     mut commands: Commands,
     time: Res<Time>,
     mut controller: ResMut<GenBallController>,
-    ball_query: Query<&Transform, With<Ball>>,
+    ball_query: Query<(&Transform, &Velocity), With<Ball>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
@@ -471,13 +541,16 @@ fn gen_ball(
         let mesh_handler: Mesh2dHandle = meshes.add(shape::Circle::default().into()).into();
         let material_handler = materials.add(ColorMaterial::from(BALL_COLOR));
         let mut rng = rand::thread_rng();
-        for transform in &ball_query {
+        for (transform, ball_velocity) in &ball_query {
             for _ in 0..3 {
                 let velocity_x = rng.gen_range(-BALL_SPEED..BALL_SPEED);
                 let mut velocity_y = (2.0*BALL_SPEED.powf(2.0) - velocity_x.abs().powf(2.0)).sqrt();
-                if rng.gen::<f32>() > 0.5 {
-                    velocity_y = -velocity_y;
+                if ball_velocity.y < 0.0 {
+                    velocity_y = -velocity_y
                 }
+                // if rng.gen::<f32>() > 0.5 {
+                    // velocity_y = -velocity_y;
+                // }
                 commands.spawn((
                     MaterialMesh2dBundle {
                         mesh: mesh_handler.clone(),
