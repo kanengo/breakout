@@ -427,10 +427,18 @@ fn check_collider_chunk(
             let target = shortest.unwrap();
             let (global_transform, transform, (brick_option, _)) = brick_query.get_mut(target).unwrap();
             let scale = transform.scale.truncate();
-            let collision = collide(
-                ball_transform.translation,
-                ball_transform.scale.truncate(),
-                global_transform.translation(),
+            // let collision = collide(
+            //     ball_transform.translation,
+            //     ball_transform.scale.truncate(),
+            //     global_transform.translation(),
+            //     Vec2::new(scale.x + GAP_BETWEEN_BRICKS, scale.y + GAP_BETWEEN_BRICKS),
+            // );
+
+            
+            let collision = collide_circle_rect(
+                ball_transform.translation.truncate(),
+                ball_transform.scale.x,
+                global_transform.translation().truncate(),
                 Vec2::new(scale.x + GAP_BETWEEN_BRICKS, scale.y + GAP_BETWEEN_BRICKS),
             );
 
@@ -590,4 +598,40 @@ fn gen_ball(
             }
         }
     }
+}
+
+fn collide_circle_rect(circle: Vec2, radius: f32, rect: Vec2, rect_size: Vec2) -> Option<Collision> {
+    let nearest_x;
+    let nearest_y;
+    if circle.x < rect.x - rect_size.x * 0.5 {
+        nearest_x = rect.x - rect_size.x * 0.5;
+    } else if circle.x > rect.x + rect_size.x * 0.5 {
+        nearest_x = rect.x + rect_size.x * 0.5;
+    } else {
+        nearest_x = circle.x;
+    }
+
+    if circle.y < rect.y - rect_size.y * 0.5 {
+        nearest_y = rect.y - rect_size.y * 0.5
+    } else if circle.y > rect.y + rect_size.y * 0.5 {
+        nearest_y = rect.y + rect_size.y * 0.5
+    } else {
+        nearest_y = circle.y;
+    }
+
+    let distance = ((nearest_x - circle.x).powf(2.0) + (nearest_y - circle.y).powf(2.0)).sqrt();
+
+    if distance <= radius {
+        if nearest_x == rect.x - rect_size.x * 0.5 {
+            return Some(Collision::Left)
+        } else if nearest_x == rect.x + rect_size.x*0.5 {
+            return Some(Collision::Right)
+        } else if nearest_y == rect.y - rect_size.y*0.5 {
+            return Some(Collision::Bottom)
+        } else if nearest_y == rect.y+ rect_size.y*0.5{
+            return Some(Collision::Top)
+        }
+    }
+
+    None
 }
