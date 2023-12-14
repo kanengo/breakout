@@ -101,13 +101,16 @@ fn main() {
         .insert_resource(ShowWindowInfoTimer::new())
         .insert_resource(GenBallController::new())
         .add_systems(Startup, setup)
-        // .add_systems(Update, (gen_ball))
-        .add_systems(FixedUpdate,
-            (move_paddle, apply_velocity,
-             check_paddle_position_edge,
+        // .add_systems(Update, gen_ball)
+        .add_systems(FixedUpdate,(
+            move_paddle, 
+            // apply_velocity,
+            check_paddle_position_edge,
             check_ball_position_edge,
             check_collider_paddle,
-            check_collider_chunk).chain()
+            check_collider_chunk,
+            gen_ball
+        ).chain()
         )
         // .add_systems(Update,(gen_ball))
         .run();
@@ -172,7 +175,6 @@ fn setup(
             ..default()
         },
         Paddle,
-        Velocity(Vec2::new(0.0,0.0)),
         Collider(ColliderType::PADDLE),
     ));
 
@@ -283,28 +285,21 @@ fn spawn_chunk(commands: &mut Commands, chunk_pos: Vec2) {
 
 fn move_paddle(
     keyboard_input: Res<Input<KeyCode>>,
-    mut query: Query<&mut Velocity, With<Paddle>>
+    time: Res<Time>,
+    mut query: Query<&mut Transform, With<Paddle>>
 ) {
-    let mut paddle_velocity = query.single_mut();
+    let mut paddle_transform = query.single_mut();
 
     if keyboard_input.pressed(KeyCode::A) {
-        paddle_velocity.0 = Vec2::new(-1.0, 0.0);
+        paddle_transform.translation.x -= PADDLE_SPEED * time.delta_seconds();
     } else if keyboard_input.pressed(KeyCode::D) {
-        paddle_velocity.0 = Vec2::new(1.0, 0.0);
-    } else {
-        paddle_velocity.0 = Vec2::new(0.0, 0.0);
+        paddle_transform.translation.x += PADDLE_SPEED * time.delta_seconds();
     }
 
-    paddle_velocity.x *= PADDLE_SPEED;
-    
+    let left_bound = LEFT_EDGE - paddle_transform.scale.x / 2.0;
+    let right_bound = RIGHT_EDGE - paddle_transform.scale.x / 2.0;
 
-    // let new_paddle_position_x = 
-    //     paddle_transform.translation.x + paddle_velocity.0.x;
-
-    // let left_bound = LEFT_EDGE - paddle_transform.scale.x / 2.0;
-    // let right_bound = RIGHT_EDGE - paddle_transform.scale.x / 2.0;
-
-    // paddle_transform.translation.x = new_paddle_position_x.clamp(left_bound, right_bound);
+    paddle_transform.translation.x = paddle_transform.translation.x.clamp(left_bound, right_bound);
 }
 
 fn gizmos_system(mut gizmos:Gizmos, query: Query<&Transform, With<Chunk>>) {
@@ -381,17 +376,34 @@ fn check_collider_paddle(
 
 fn check_collider_chunk(
     mut commands: Commands,
-    mut ball_query: Query<(&Transform, &mut Velocity), With<Ball>>,
-    chunk_query: Query<(&Transform, &Children), With<Chunk>>,
-    mut brick_query: Query<(&GlobalTransform, &Transform, AnyOf<(&mut Brick, &WallBlock)>)>,
+    mut ball_query: Query<(&mut Transform, &mut Velocity), (With<Ball>,Without<Chunk>)>,
+    chunk_query: Query<(&Transform, &Children), (With<Chunk>, Without<Ball>)>,
+    mut brick_query: Query<(&GlobalTransform, &mut Transform, AnyOf<(&mut Brick, &WallBlock)>),(Without<Ball>, Without<Chunk>)>,
+    time: Res<Time>,
 ) {
     // let start_time = SystemTime::now();
-    for (ball_transform, mut ball_velocity) in &mut ball_query {
+    for (mut ball_transform, mut ball_velocity) in &mut ball_query {
+        let mut collided = false;
+        //检测chunk是否碰撞
+        let future_ball_translation = Vec2::new(
+            ball_transform.translation.x + ball_velocity.x * time.delta_seconds(),
+            ball_transform.translation.y + ball_velocity.y * time.delta_seconds(),
+        );
+        let check_box_translation = Vec2::new(
+            (future_ball_translation.x + ball_transform.translation.x) / 2.0,
+            (future_ball_translation.y + ball_transform.translation.y) / 2.0,
+        );
+
+        let check_box_size = Vec2::new(
+            (future_ball_translation.x - ball_transform.translation.x).abs() + BALL_SIZE.x,
+            (future_ball_translation.y - ball_transform.translation.y).abs() + BALL_SIZE.y,
+        );
+
+
         for (chunk_transform, children) in &chunk_query {
-            let mut collided = false;
             let collision = collide(
-                ball_transform.translation,
-                ball_transform.scale.truncate(),
+                check_box_translation.extend(0.0),
+                check_box_size,
                 chunk_transform.translation,
                 Vec2::new(CHUNK_SIZE.x, CHUNK_SIZE.y),
             );
@@ -400,47 +412,66 @@ fn check_collider_chunk(
                 continue
             }
             // println!("in chunk:{} {}", chunk_transform.translation.x, chunk_transform.translation.y)
-            let mut shortest: Option<Entity> = None;
+            let mut nearest: Option<Entity> = None;
+
+            let ball_last_pos = Vec2::new(
+                ball_transform.translation.x - ball_velocity.x * time.delta_seconds(),
+                ball_transform.translation.y - ball_velocity.y * time.delta_seconds(),
+            ).extend(0.0);
+
             for &child in children {
                 if let Ok(brick_item) = brick_query.get_mut(child) {
                     let (global_transform, _, (_, _)) = brick_item;
+                    
+                    let collision = collide(
+                        ball_transform.translation,
+                        ball_transform.scale.truncate(),
+                        global_transform.translation(),
+                        Vec2::new(BRICK_SIZE.x+ GAP_BETWEEN_BRICKS, BRICK_SIZE.y + GAP_BETWEEN_BRICKS),
+                    );
 
-                    let distance = ball_transform.translation.distance(global_transform.translation());
-                    match shortest {
+                    if collision.is_none() {
+                        continue;
+                    }
+
+                    let distance = ball_last_pos.distance(global_transform.translation());
+                    match nearest {
                         Some(last) => {
                             let (last_global_transform, _, (_, _)) = brick_query.get(last).unwrap();
-                            if ball_transform.translation.distance(last_global_transform.translation()) > distance {
-                                shortest = Some(child)
+                            if ball_last_pos.distance(last_global_transform.translation()) > distance {
+                                nearest = Some(child)
                             }
                         }
                         None => {
-                            shortest = Some(child);
+                            nearest = Some(child);
                         }
                     }
                 }
             }
 
-            if shortest.is_none() {
+            if nearest.is_none() {
                 break;
             }
 
-            let target = shortest.unwrap();
+            let target = nearest.unwrap();
             let (global_transform, transform, (brick_option, _)) = brick_query.get_mut(target).unwrap();
-            let scale = transform.scale.truncate();
-            // let collision = collide(
-            //     ball_transform.translation,
-            //     ball_transform.scale.truncate(),
-            //     global_transform.translation(),
-            //     Vec2::new(scale.x + GAP_BETWEEN_BRICKS, scale.y + GAP_BETWEEN_BRICKS),
-            // );
 
-            
-            let collision = collide_circle_rect(
-                ball_transform.translation.truncate(),
-                ball_transform.scale.x,
-                global_transform.translation().truncate(),
+            let scale = transform.scale.truncate();
+
+            let collision = collide(
+                ball_transform.translation,
+                ball_transform.scale.truncate(),
+                global_transform.translation(),
                 Vec2::new(scale.x + GAP_BETWEEN_BRICKS, scale.y + GAP_BETWEEN_BRICKS),
             );
+
+            
+            // let collision = collide_circle_rect(
+            //     ball_transform.translation.truncate(),
+            //     ball_transform.scale.x,
+            //     global_transform.translation().truncate(),
+            //     Vec2::new(scale.x + GAP_BETWEEN_BRICKS, scale.y + GAP_BETWEEN_BRICKS),
+            // );
 
             if collision.is_none() {
                 if brick_option.is_none() {
@@ -495,6 +526,11 @@ fn check_collider_chunk(
             if collided {
                 break
             }
+        }
+
+        if !collided {
+            ball_transform.translation.x += ball_velocity.x * time.delta_seconds();
+            ball_transform.translation.y += ball_velocity.y * time.delta_seconds();
         }
     }
     // println!("delta:{}",SystemTime::now().duration_since(start_time).unwrap().as_micros())
@@ -572,7 +608,7 @@ fn gen_ball(
         let material_handler = materials.add(ColorMaterial::from(BALL_COLOR));
         let mut rng = rand::thread_rng();
         for (transform, ball_velocity) in &ball_query {
-            for _ in 0..3 {
+            for _ in 0..2 {
                 let velocity_x = rng.gen_range(-BALL_SPEED..BALL_SPEED);
                 let mut velocity_y = (2.0*BALL_SPEED.powf(2.0) - velocity_x.abs().powf(2.0)).sqrt();
                 if ball_velocity.y < 0.0 {
