@@ -16,8 +16,8 @@ const BRICK_SIZE: Vec3 = Vec3::new(10.0, 10.0,0.0);
 const BRICK_COLOR: Color = Color::GREEN;
 const GAP_BETWEEN_BRICKS: f32 = 2.0;
 
-const BACKGROUND_COLOR: Color = Color::BLUE;
-
+const BACKGROUND_COLOR: Color = Color::BLACK;0.000
+00000
 const RIGHT_EDGE: f32 = 640.0;
 const LEFT_EDGE: f32 = -640.0;
 const TOP_EDGE: f32 = 360.0;
@@ -109,7 +109,7 @@ fn main() {
             check_ball_position_edge,
             check_collider_paddle,
             check_collider_chunk,
-            gen_ball
+            gen_ball,
         ).chain()
         )
         // .add_systems(Update,(gen_ball))
@@ -424,17 +424,17 @@ fn check_collider_chunk(
                     let (global_transform, _, (_, _)) = brick_item;
                     
                     let collision = collide(
-                        ball_transform.translation,
+                        future_ball_translation.extend(0.0),
                         ball_transform.scale.truncate(),
                         global_transform.translation(),
-                        Vec2::new(BRICK_SIZE.x+ GAP_BETWEEN_BRICKS, BRICK_SIZE.y + GAP_BETWEEN_BRICKS),
+                        Vec2::new(BRICK_SIZE.x, BRICK_SIZE.y),
                     );
 
                     if collision.is_none() {
                         continue;
                     }
 
-                    let distance = ball_last_pos.distance(global_transform.translation());
+                    let distance = ball_transform.translation.distance(global_transform.translation());
                     match nearest {
                         Some(last) => {
                             let (last_global_transform, _, (_, _)) = brick_query.get(last).unwrap();
@@ -459,10 +459,10 @@ fn check_collider_chunk(
             let scale = transform.scale.truncate();
 
             let collision = collide(
-                ball_transform.translation,
+                future_ball_translation.extend(0.0),
                 ball_transform.scale.truncate(),
                 global_transform.translation(),
-                Vec2::new(scale.x + GAP_BETWEEN_BRICKS, scale.y + GAP_BETWEEN_BRICKS),
+                Vec2::new(scale.x, scale.y),
             );
 
             
@@ -491,8 +491,8 @@ fn check_collider_chunk(
                 brick.destroy = true;
                 commands.entity(target).despawn();
             } else {
-                println!("wall translation:{} {} ball translation: {} {} ball velocity: {} {} collision: {:?}", global_transform.translation().x , global_transform.translation().y,
-                ball_transform.translation.x, ball_transform.translation.y, ball_velocity.x, ball_velocity.y, collision)
+                // println!("wall translation:{} {} ball translation: {} {} ball velocity: {} {} collision: {:?}", global_transform.translation().x , global_transform.translation().y,
+                // ball_transform.translation.x, ball_transform.translation.y, ball_velocity.x, ball_velocity.y, collision)
             }
 
             // println!("collision brick: {} {}",brick_translation.x, brick_translation.y);
@@ -506,10 +506,10 @@ fn check_collider_chunk(
                 Collision::Top => reflect_y = ball_velocity.y < 0.0,
                 Collision::Bottom => reflect_y = ball_velocity.y > 0.0,
                 Collision::Inside => {
-                    println!("gothrough!! now:{} {} old:{} {} brick:{} {}",ball_transform.translation.x, ball_transform.translation.y,
-                    ball_transform.translation.x + ball_velocity.x, ball_transform.translation.y + ball_velocity.y,
-                    global_transform.translation().x, global_transform.translation().y
-                    )
+                    // println!("gothrough!! now:{} {} old:{} {} brick:{} {}",ball_transform.translation.x, ball_transform.translation.y,
+                    // ball_transform.translation.x + ball_velocity.x, ball_transform.translation.y + ball_velocity.y,
+                    // global_transform.translation().x, global_transform.translation().y
+                    // )
                 }
             }
 
@@ -531,6 +531,9 @@ fn check_collider_chunk(
         if !collided {
             ball_transform.translation.x += ball_velocity.x * time.delta_seconds();
             ball_transform.translation.y += ball_velocity.y * time.delta_seconds();
+        } else {
+            ball_transform.translation.x = future_ball_translation.x;
+            ball_transform.translation.y = future_ball_translation.y;
         }
     }
     // println!("delta:{}",SystemTime::now().duration_since(start_time).unwrap().as_micros())
