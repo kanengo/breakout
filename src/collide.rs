@@ -1,13 +1,11 @@
 use bevy::{math::Vec2, utils::petgraph::matrix_graph::Zero, sprite::collide_aabb::Collision};
 
-
-
 fn cross2d(v1:Vec2, v2: Vec2) -> f32 {
    v1.x*v2.y - v1.y*v2.x
 }
 
 
-fn time_of_vetex_edge_parallel(x0: Vec2, v0: Vec2, x1: Vec2, x2: Vec2) -> Vec<Option<f32>> {
+fn time_of_vertex_edge_parallel(x0: Vec2, v0: Vec2, x1: Vec2, x2: Vec2) -> Vec<Option<f32>> {
     let a = cross2d(v0, Vec2::ZERO);
     let b = cross2d(x0 - x1, Vec2::ZERO) + cross2d(v0, x2-x1);
     let c = cross2d(x0 - x1, x2 - x1);
@@ -50,19 +48,23 @@ fn check_collide_point_nearest_edge(point:Vec2, v: Vec2, edges: &Vec<(Vec2,Vec2,
     let mut nearest = None;
 
     for &(x1, x2, collision) in edges.iter() {
-        let toi_result = time_of_vetex_edge_parallel(point, v, x1, x2);
+        let toi_result = time_of_vertex_edge_parallel(point, v, x1, x2);
         for toi in toi_result {
             if let Some(toi) = toi {
                 if toi > 0.0 &&  !toi.is_infinite() {
                     let parallel_point = Vec2::new(point.x + v.x * toi, point.y + v.y *toi);
-                    match nearest {
-                        Some((t, _)) => {
-                            if toi < t {
+                    // println!("parallel_point:{} {} {:?}", parallel_point, toi, collision);
+                    if parallel_point.x >= x1.x.min(x2.x) && parallel_point.x <= x1.x.max(x2.x)
+                        && parallel_point.y >= x1.y.min(x2.y) && parallel_point.y <= x1.y.max(x2.y) {
+                        match nearest {
+                            Some((t, _)) => {
+                                if toi < t {
+                                    nearest = Some((toi, collision));
+                                }
+                            }
+                            None => {
                                 nearest = Some((toi, collision));
                             }
-                        }
-                        None => {
-                            nearest = Some((toi, collision));
                         }
                     }
                 }
@@ -73,7 +75,7 @@ fn check_collide_point_nearest_edge(point:Vec2, v: Vec2, edges: &Vec<(Vec2,Vec2,
     nearest
 }
 
-fn time_of_collide_circle_rect(circle: Vec2, radius: f32, v: Vec2, rect: Vec2, rect_size: Vec2) -> Option<(f32,Collision)> {
+pub(crate) fn time_of_collide_circle_rect(circle: Vec2, radius: f32, v: Vec2, rect: Vec2, rect_size: Vec2) -> Option<(f32, Collision)> {
     if v == Vec2::ZERO {
         return None
     }
@@ -87,10 +89,12 @@ fn time_of_collide_circle_rect(circle: Vec2, radius: f32, v: Vec2, rect: Vec2, r
 
     let edges = vec![
         (x1, x2,Collision::Left), 
-        (x1, x4, Collision::Bottom),
-        (x3, x2, Collision::Top),
-        (x3,x4, Collision::Right),
+        (x2, x3, Collision::Top),
+        (x3, x4, Collision::Right),
+        (x4, x1, Collision::Bottom),
     ];
+
+    // println!("edges: {:?}", edges);
 
     // let check_points: (Option<Vec2>, Option<Vec2>);
     let point1 ;
@@ -110,14 +114,37 @@ fn time_of_collide_circle_rect(circle: Vec2, radius: f32, v: Vec2, rect: Vec2, r
     } else {
         point2 = None;
     }
+    //
+    let point3;
+    if !v.x.is_zero() && !v.y.is_zero() {
+        let angle = (v.y/v.x).abs().atan();
+        let x;
+        let y;
+        if v.x > 0.0 {
+            x = radius * angle.cos();
+        } else {
+            x = -radius * angle.cos();
+        }
 
-    let check_points = vec![point1, point2];
+        if v.y > 0.0 {
+            y = radius * angle.sin();
+        } else {
+            y = -radius * angle.sin();
+        }
+
+        point3 = Some(Vec2::new(x, y));
+    } else {
+        point3 = None;
+    }
+
+
+    let check_points = vec![point1, point2, point3];
 
     for point in check_points {
-        println!("point:{:?}", point);
+        // println!("point:{:?}", point);
         if let Some(point) = point {
             let checked_nearest = check_collide_point_nearest_edge(point, v, &edges);
-            println!("checked_nearest:{:?}", checked_nearest);
+            // println!("checked_nearest:{:?}", checked_nearest);
             if let Some(checked_nearest) = checked_nearest {
                 match nearest {
                     Some((t, _)) => {
@@ -138,13 +165,14 @@ fn time_of_collide_circle_rect(circle: Vec2, radius: f32, v: Vec2, rect: Vec2, r
 
 #[cfg(test)]
 mod tests {
+    use std::f32::consts::PI;
     use bevy::math::Vec2;
 
-    use super::{time_of_vetex_edge_parallel, time_of_collide_circle_rect};
+    use super::{time_of_vertex_edge_parallel, time_of_collide_circle_rect};
 
     #[test]
     fn test_time_of_vetex_edge_parallel() {
-        let result = time_of_vetex_edge_parallel(
+        let result = time_of_vertex_edge_parallel(
            Vec2::new(0.0, -5.0),
            Vec2::new(0.0,1.0),
            Vec2::new(-1.0, 0.0),
@@ -173,12 +201,15 @@ mod tests {
         let radius = 8.0;
 
         let rect = Vec2::new(25.0,25.0);
-        let rect_size = Vec2::new(10.0,10.0);
+        let rect_size = Vec2::new(5.0,30.0);
 
         let v = Vec2::new(3.0,3.0);
 
         let collision = time_of_collide_circle_rect(circle, radius, v, rect, rect_size);
 
-        println!("result:{:?}", collision)
+        println!("result:{:?}", collision);
+
+        let tan :f32 =-1.0;
+        println!("tan:{} {}", tan.atan(), PI/4.0);
     }
 }
