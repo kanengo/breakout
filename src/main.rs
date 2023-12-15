@@ -1,4 +1,4 @@
-
+mod collide;
 
 use bevy::{
     prelude::*, sprite::{MaterialMesh2dBundle, collide_aabb::collide, Mesh2dHandle},
@@ -16,8 +16,7 @@ const BRICK_SIZE: Vec3 = Vec3::new(10.0, 10.0,0.0);
 const BRICK_COLOR: Color = Color::GREEN;
 const GAP_BETWEEN_BRICKS: f32 = 2.0;
 
-const BACKGROUND_COLOR: Color = Color::BLACK;0.000
-00000
+const BACKGROUND_COLOR: Color = Color::BLACK;
 const RIGHT_EDGE: f32 = 640.0;
 const LEFT_EDGE: f32 = -640.0;
 const TOP_EDGE: f32 = 360.0;
@@ -639,38 +638,6 @@ fn gen_ball(
     }
 }
 
-fn collide_circle_rect(circle: Vec2, radius: f32, rect: Vec2, rect_size: Vec2) -> Option<Collision> {
-    let nearest_x;
-    let nearest_y;
-    if circle.x < rect.x - rect_size.x * 0.5 {
-        nearest_x = rect.x - rect_size.x * 0.5;
-    } else if circle.x > rect.x + rect_size.x * 0.5 {
-        nearest_x = rect.x + rect_size.x * 0.5;
-    } else {
-        nearest_x = circle.x;
-    }
 
-    if circle.y < rect.y - rect_size.y * 0.5 {
-        nearest_y = rect.y - rect_size.y * 0.5
-    } else if circle.y > rect.y + rect_size.y * 0.5 {
-        nearest_y = rect.y + rect_size.y * 0.5
-    } else {
-        nearest_y = circle.y;
-    }
 
-    let distance = ((nearest_x - circle.x).powf(2.0) + (nearest_y - circle.y).powf(2.0)).sqrt();
 
-    if distance <= radius {
-        if nearest_x == rect.x - rect_size.x * 0.5 {
-            return Some(Collision::Left)
-        } else if nearest_x == rect.x + rect_size.x*0.5 {
-            return Some(Collision::Right)
-        } else if nearest_y == rect.y - rect_size.y*0.5 {
-            return Some(Collision::Bottom)
-        } else if nearest_y == rect.y+ rect_size.y*0.5{
-            return Some(Collision::Top)
-        }
-    }
-
-    None
-}
