@@ -103,11 +103,11 @@ fn main() {
         .add_systems(FixedUpdate,(
             move_paddle, 
             // apply_velocity,
-            check_paddle_position_edge,
+            // check_paddle_position_edge,
             check_ball_position_edge,
             check_collider_paddle,
             check_collider_chunk,
-            gen_ball,
+            // gen_ball,
         ).chain()
         )
         // .add_systems(Update,(gen_ball))
@@ -331,15 +331,15 @@ fn check_ball_position_edge(
     mut controller: ResMut<GenBallController>,
 ) {
     for (entity, ball_transform,  mut velocity) in &mut query {
-        if ball_transform.translation.x + BALL_SIZE.x >= RIGHT_EDGE {
+        if ball_transform.translation.x + BALL_SIZE.x / 2.0>= RIGHT_EDGE {
             velocity.x = -velocity.x.abs();
-        } else if ball_transform.translation.x - BALL_SIZE.x <= LEFT_EDGE {
+        } else if ball_transform.translation.x - BALL_SIZE.x / 2.0 <= LEFT_EDGE {
             velocity.x = velocity.x.abs();
         }
     
-        if ball_transform.translation.y + BALL_SIZE.y >= TOP_EDGE {
+        if ball_transform.translation.y + BALL_SIZE.y / 2.0 >= TOP_EDGE {
             velocity.y = -velocity.y.abs();
-        } else if ball_transform.translation.y - BALL_SIZE.y < BOTTOM_EDGE {
+        } else if ball_transform.translation.y - BALL_SIZE.y / 2.0 < BOTTOM_EDGE {
             // commands.entity(entity).despawn();
             // controller.ball_count -= 1;
             velocity.y = velocity.y.abs();
@@ -381,9 +381,6 @@ fn check_collider_chunk(
 ) {
     // let start_time = SystemTime::now();
     for (mut ball_transform, mut ball_velocity) in &mut ball_query {
-        let mut collided = false;
-        //检测chunk是否碰撞
-
         let future_ball_translation = Vec2::new(
             ball_transform.translation.x + ball_velocity.x * time.delta_seconds(),
             ball_transform.translation.y + ball_velocity.y * time.delta_seconds(),
@@ -400,6 +397,7 @@ fn check_collider_chunk(
 
         let mut collision: Option<(f32, Collision, Entity)> = None;
 
+        //检测chunk是否碰撞
         for (chunk_transform, children) in &chunk_query {
             if collide(
                 check_box_translation,
@@ -409,14 +407,6 @@ fn check_collider_chunk(
             ).is_none() {
                 continue
             }
-
-            // println!("in chunk:{} {}", chunk_transform.translation.x, chunk_transform.translation.y)
-            let mut nearest: Option<Entity> = None;
-
-            let ball_last_pos = Vec2::new(
-                ball_transform.translation.x - ball_velocity.x * time.delta_seconds(),
-                ball_transform.translation.y - ball_velocity.y * time.delta_seconds(),
-            ).extend(0.0);
 
             for &child in children {
                 if let Ok(brick_item) = brick_query.get_mut(child) {
@@ -436,10 +426,10 @@ fn check_collider_chunk(
                     ).is_none() {
                         continue
                     }
-
+                    println!("toi before: {} ball:{}",  global_transform.translation(), ball_transform.translation);
                     let toi = collide::time_of_collide_circle_rect(
                         ball_transform.translation.truncate(),
-                        ball_transform.scale.x,
+                        ball_transform.scale.x * 0.5,
                         ball_velocity.0,
                         global_transform.translation().truncate(),
                         brick_transform.scale.truncate(),
@@ -447,6 +437,7 @@ fn check_collider_chunk(
 
                     if let Some((toi,c)) = toi {
                         if toi <= time.delta_seconds() {
+                            println!("toi middle: {} collision: {:?} {} ball:{}", toi, c, global_transform.translation(), ball_transform.translation);
                             match collision {
                                 Some((t, _,_)) => {
                                     if toi < t {
@@ -463,13 +454,14 @@ fn check_collider_chunk(
             }
         }
 
-        if let Some(collision) = collision {
-            let (toi, collision_type, child) = collision;
-            let (_, _, (mut brick_option, _)) = brick_query.get_mut(child).unwrap();
+        if let Some((toi, collision_type, child)) = collision {
+            let (gt, _, (mut brick_option, wall)) = brick_query.get_mut(child).unwrap();
 
             if let Some(mut brick) = brick_option {
                 brick.destroy = true;
                 commands.entity(child).despawn();
+            } else {
+                println!("toi: {} collision: {:?} {} ball:{} v:{} delta:{}", toi, collision_type, gt.translation(), ball_transform.translation, ball_velocity.0, time.delta_seconds());
             }
 
             ball_transform.translation.x += ball_velocity.x * toi;
@@ -496,14 +488,7 @@ fn check_collider_chunk(
             if reflect_y {
                 ball_velocity.y = -ball_velocity.y;
             }
-
-            collided = true;
-            if collided {
-                break
-            }
-        }
-
-        if !collided {
+        } else {
             ball_transform.translation.x += ball_velocity.x * time.delta_seconds();
             ball_transform.translation.y += ball_velocity.y * time.delta_seconds();
         }

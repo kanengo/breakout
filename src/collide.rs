@@ -53,7 +53,7 @@ fn check_collide_point_nearest_edge(point:Vec2, v: Vec2, edges: &Vec<(Vec2,Vec2,
             if let Some(toi) = toi {
                 if toi > 0.0 &&  !toi.is_infinite() {
                     let parallel_point = Vec2::new(point.x + v.x * toi, point.y + v.y *toi);
-                    // println!("parallel_point:{} {} {:?}", parallel_point, toi, collision);
+                    println!("point: {} parallel_point:{} {} {:?}", point, parallel_point, toi, collision);
                     if parallel_point.x >= x1.x.min(x2.x) && parallel_point.x <= x1.x.max(x2.x)
                         && parallel_point.y >= x1.y.min(x2.y) && parallel_point.y <= x1.y.max(x2.y) {
                         match nearest {
@@ -79,7 +79,6 @@ pub(crate) fn time_of_collide_circle_rect(circle: Vec2, radius: f32, v: Vec2, re
     if v == Vec2::ZERO {
         return None
     }
-
     let mut nearest = None;
 
     let x1 = Vec2::new(rect.x - rect_size.x / 2.0, rect.y - rect_size.y/2.0);
@@ -139,27 +138,30 @@ pub(crate) fn time_of_collide_circle_rect(circle: Vec2, radius: f32, v: Vec2, re
 
 
     let check_points = vec![point1, point2, point3];
+    let mut nearest_point = None;
 
     for point in check_points {
         // println!("point:{:?}", point);
         if let Some(point) = point {
             let checked_nearest = check_collide_point_nearest_edge(point, v, &edges);
-            // println!("checked_nearest:{:?}", checked_nearest);
+            println!("checked_nearest:{:?} point:{}", checked_nearest, point);
             if let Some(checked_nearest) = checked_nearest {
                 match nearest {
                     Some((t, _)) => {
                         if checked_nearest.0 < t {
                             nearest = Some(checked_nearest);
+                            nearest_point = Some(point);
                         }
                     }
                     None => {
                         nearest = Some(checked_nearest);
+                        nearest_point = Some(point);
                     }
                 }
             }
         }
     }
-
+    println!("===nearest point:{:?}===", nearest_point);
     nearest
 }
 
@@ -197,13 +199,13 @@ mod tests {
 
     #[test]
     fn test_time_of_collide_circle_rect() {
-        let circle = Vec2::new(0.0, 0.0);
-        let radius = 8.0;
+        let v = Vec2::new(-9.495282,282.6833);
+        let circle = Vec2::new(27.58929-v.x*0.015625 * 5.0, 4.3467054-v.y*0.015625 * 5.0);
+        let radius = 4.0;
 
-        let rect = Vec2::new(25.0,25.0);
-        let rect_size = Vec2::new(5.0,30.0);
+        let rect = Vec2::new(30.0,6.0);
+        let rect_size = Vec2::new(10.0,10.0);
 
-        let v = Vec2::new(3.0,3.0);
 
         let collision = time_of_collide_circle_rect(circle, radius, v, rect, rect_size);
 
