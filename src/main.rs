@@ -22,8 +22,9 @@ const TOP_EDGE: f32 = 360.0;
 const BOTTOM_EDGE: f32 = -360.0;
 
 const BALL_COLOR: Color = Color::WHITE;
-const BALL_SIZE: Vec3 = Vec3::new(8.0, 8.0, 0.0);
+// const BALL_SIZE: Vec3 = Vec3::new(8.0, 8.0, 0.0);
 const BALL_SPEED: f32 = 200.0;
+const BALL_RADIUS: f32 = 4.0;
 
 const WALL_COLOR: Color = Color::GRAY;
 
@@ -104,10 +105,10 @@ fn main() {
             move_paddle, 
             // apply_velocity,
             // check_paddle_position_edge,
-            check_ball_position_edge,
+            // check_ball_position_edge,
             check_collider_paddle,
-            check_collider_chunk,
-            // gen_ball,
+            check_collider_ball,
+            gen_ball,
         ).chain()
         )
         // .add_systems(Update,(gen_ball))
@@ -187,7 +188,7 @@ fn setup(
         MaterialMesh2dBundle {
             mesh: meshes.add(shape::Circle::default().into()).into(),
             material: materials.add(ColorMaterial::from(BALL_COLOR)),
-            transform: Transform::from_translation(ball_translation).with_scale(BALL_SIZE),
+            transform: Transform::from_translation(ball_translation).with_scale(BALL_RADIUS * 2.0),
             ..default()
         },
         Ball,
@@ -234,13 +235,13 @@ fn spawn_chunk(commands: &mut Commands, chunk_pos: Vec2) {
                 start_pos.x + (BRICK_SIZE.x + GAP_BETWEEN_BRICKS) * bc,
                 start_pos.y + (BRICK_SIZE.y + GAP_BETWEEN_BRICKS) * br,
             );
+
             if (chunk_pos.x + brick_pos.x).abs() + BRICK_SIZE.x / 2.0 > RIGHT_EDGE {
                 continue
             }
             if (chunk_pos.y + brick_pos.y).abs() + BRICK_SIZE.y / 2.0 > TOP_EDGE {
                 continue
             }
-            
             if ((chunk_pos.y - CHUNK_SIZE.y / 2.0) / CHUNK_SIZE.y).floor() as i32 == 0  && brick_row == 0{
                 let brick = commands.spawn((
                     SpriteBundle {
@@ -257,6 +258,7 @@ fn spawn_chunk(commands: &mut Commands, chunk_pos: Vec2) {
                 )).id();
                 commands.entity(chunk_entity).add_child(brick);
             } else {
+
                 let brick = commands.spawn((
                     SpriteBundle {
                         sprite: Sprite {
@@ -331,15 +333,15 @@ fn check_ball_position_edge(
     mut controller: ResMut<GenBallController>,
 ) {
     for (entity, ball_transform,  mut velocity) in &mut query {
-        if ball_transform.translation.x + BALL_SIZE.x / 2.0>= RIGHT_EDGE {
+        if ball_transform.translation.x + BALL_RADIUS>= RIGHT_EDGE {
             velocity.x = -velocity.x.abs();
-        } else if ball_transform.translation.x - BALL_SIZE.x / 2.0 <= LEFT_EDGE {
+        } else if ball_transform.translation.x - BALL_RADIUS <= LEFT_EDGE {
             velocity.x = velocity.x.abs();
         }
     
-        if ball_transform.translation.y + BALL_SIZE.y / 2.0 >= TOP_EDGE {
+        if ball_transform.translation.y + BALL_RADIUS >= TOP_EDGE {
             velocity.y = -velocity.y.abs();
-        } else if ball_transform.translation.y - BALL_SIZE.y / 2.0 < BOTTOM_EDGE {
+        } else if ball_transform.translation.y - BALL_RADIUS < BOTTOM_EDGE {
             // commands.entity(entity).despawn();
             // controller.ball_count -= 1;
             velocity.y = velocity.y.abs();
@@ -372,7 +374,7 @@ fn check_collider_paddle(
     }
 }
 
-fn check_collider_chunk(
+fn check_collider_ball(
     mut commands: Commands,
     mut ball_query: Query<(&mut Transform, &mut Velocity), (With<Ball>,Without<Chunk>)>,
     chunk_query: Query<(&Transform, &Children), (With<Chunk>, Without<Ball>)>,
@@ -391,8 +393,8 @@ fn check_collider_chunk(
         ).extend(0.0);
 
         let check_box_size = Vec2::new(
-            (future_ball_translation.x - ball_transform.translation.x).abs() + BALL_SIZE.x,
-            (future_ball_translation.y - ball_transform.translation.y).abs() + BALL_SIZE.y,
+            (future_ball_translation.x - ball_transform.translation.x).abs() + BALL_RADIUS * 2.0,
+            (future_ball_translation.y - ball_transform.translation.y).abs() + BALL_RADIUS * 2.0,
         );
 
         let mut collision: Option<(f32, Collision, Entity)> = None;
@@ -422,22 +424,23 @@ fn check_collider_chunk(
                         check_box_translation,
                         check_box_size,
                         global_transform.translation(),
-                        Vec2::new(BRICK_SIZE.x, BRICK_SIZE.y),
+                        Vec2::new(BRICK_SIZE.x + GAP_BETWEEN_BRICKS, BRICK_SIZE.y + GAP_BETWEEN_BRICKS),
                     ).is_none() {
                         continue
                     }
-                    println!("toi before: {} ball:{}",  global_transform.translation(), ball_transform.translation);
+                    // println!("toi before: {} ball:{}",  global_transform.translation(), ball_transform.translation);
                     let toi = collide::time_of_collide_circle_rect(
                         ball_transform.translation.truncate(),
                         ball_transform.scale.x * 0.5,
                         ball_velocity.0,
                         global_transform.translation().truncate(),
-                        brick_transform.scale.truncate(),
+                        Vec2::new(BRICK_SIZE.x + GAP_BETWEEN_BRICKS, BRICK_SIZE.y + GAP_BETWEEN_BRICKS)
+                        // brick_transform.scale.truncate(),
                     );
 
                     if let Some((toi,c)) = toi {
                         if toi <= time.delta_seconds() {
-                            println!("toi middle: {} collision: {:?} {} ball:{}", toi, c, global_transform.translation(), ball_transform.translation);
+                            // println!("toi middle: {} collision: {:?} {} ball:{}", toi, c, global_transform.translation(), ball_transform.translation);
                             match collision {
                                 Some((t, _,_)) => {
                                     if toi < t {
@@ -454,6 +457,28 @@ fn check_collider_chunk(
             }
         }
 
+        let mut edge_collision =  collide::time_of_collide_circle_rect(
+            ball_transform.translation.truncate(),
+            BALL_RADIUS,
+            ball_velocity,
+            Vec2::ZERO,
+            Vec2::new((LEFT_EDGE - RIGHT_EDGE).abs(), (TOP_EDGE - BOTTOM_EDGE).abs()),
+        );
+
+        if let Some((toi,_)) = edge_collision {
+            if toi > time.delta_seconds() {
+                edge_collision = None;
+            } else  {
+                if let Some((t, _, _)) = collision {
+                    if toi < t {
+                        collision = None;
+                    } else if toi < t {
+                        edge_collision = None;
+                    }
+                }
+            }
+        }
+
         if let Some((toi, collision_type, child)) = collision {
             let (gt, _, (mut brick_option, wall)) = brick_query.get_mut(child).unwrap();
 
@@ -461,7 +486,7 @@ fn check_collider_chunk(
                 brick.destroy = true;
                 commands.entity(child).despawn();
             } else {
-                println!("toi: {} collision: {:?} {} ball:{} v:{} delta:{}", toi, collision_type, gt.translation(), ball_transform.translation, ball_velocity.0, time.delta_seconds());
+                // println!("toi: {} collision: {:?} {} ball:{} v:{} delta:{}", toi, collision_type, gt.translation(), ball_transform.translation, ball_velocity.0, time.delta_seconds());
             }
 
             ball_transform.translation.x += ball_velocity.x * toi;
@@ -488,7 +513,35 @@ fn check_collider_chunk(
             if reflect_y {
                 ball_velocity.y = -ball_velocity.y;
             }
-        } else {
+        }
+
+        if let Some((toi, collision_type)) = edge_collision {
+            if collision.is_none() {
+                ball_transform.translation.x += ball_velocity.x * toi;
+                ball_transform.translation.y += ball_velocity.y * toi;
+            }
+
+            let mut reflect_x = false;
+            let mut reflect_y = false;
+
+            match collision_type {
+                Collision::Left => reflect_x = ball_velocity.x > 0.0,
+                Collision::Right => reflect_x = ball_velocity.x < 0.0,
+                Collision::Top => reflect_y = ball_velocity.y < 0.0,
+                Collision::Bottom => reflect_y = ball_velocity.y > 0.0,
+                Collision::Inside => {}
+            }
+
+            if reflect_x {
+                ball_velocity.x = -ball_velocity.x;
+            }
+
+            if reflect_y {
+                ball_velocity.y = -ball_velocity.y;
+            }
+        }
+
+        if collision.is_none() && edge_collision.is_none() {
             ball_transform.translation.x += ball_velocity.x * time.delta_seconds();
             ball_transform.translation.y += ball_velocity.y * time.delta_seconds();
         }
@@ -563,7 +616,7 @@ fn gen_ball(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if controller.ball_count < 1000 && controller.timer.tick(time.delta()).just_finished() {
+    if controller.ball_count < 3000 && controller.timer.tick(time.delta()).just_finished() {
         let mesh_handler: Mesh2dHandle = meshes.add(shape::Circle::default().into()).into();
         let material_handler = materials.add(ColorMaterial::from(BALL_COLOR));
         let mut rng = rand::thread_rng();
@@ -589,7 +642,7 @@ fn gen_ball(
                 ));
             }
             controller.ball_count += 3;
-            if controller.ball_count >= 1000 {
+            if controller.ball_count >= 3000 {
                 break
             }
         }
