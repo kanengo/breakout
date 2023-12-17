@@ -188,7 +188,7 @@ fn setup(
         MaterialMesh2dBundle {
             mesh: meshes.add(shape::Circle::default().into()).into(),
             material: materials.add(ColorMaterial::from(BALL_COLOR)),
-            transform: Transform::from_translation(ball_translation).with_scale(BALL_RADIUS * 2.0),
+            transform: Transform::from_translation(ball_translation).with_scale(Vec2::new(BALL_RADIUS * 2.0, BALL_RADIUS * 2.0).extend(0.0)),
             ..default()
         },
         Ball,
@@ -434,7 +434,7 @@ fn check_collider_ball(
                         ball_transform.scale.x * 0.5,
                         ball_velocity.0,
                         global_transform.translation().truncate(),
-                        Vec2::new(BRICK_SIZE.x + GAP_BETWEEN_BRICKS, BRICK_SIZE.y + GAP_BETWEEN_BRICKS)
+                        Vec2::new(BRICK_SIZE.x + GAP_BETWEEN_BRICKS , BRICK_SIZE.y + GAP_BETWEEN_BRICKS )
                         // brick_transform.scale.truncate(),
                     );
 
@@ -460,7 +460,7 @@ fn check_collider_ball(
         let mut edge_collision =  collide::time_of_collide_circle_rect(
             ball_transform.translation.truncate(),
             BALL_RADIUS,
-            ball_velocity,
+            ball_velocity.0,
             Vec2::ZERO,
             Vec2::new((LEFT_EDGE - RIGHT_EDGE).abs(), (TOP_EDGE - BOTTOM_EDGE).abs()),
         );
@@ -525,10 +525,10 @@ fn check_collider_ball(
             let mut reflect_y = false;
 
             match collision_type {
-                Collision::Left => reflect_x = ball_velocity.x > 0.0,
-                Collision::Right => reflect_x = ball_velocity.x < 0.0,
-                Collision::Top => reflect_y = ball_velocity.y < 0.0,
-                Collision::Bottom => reflect_y = ball_velocity.y > 0.0,
+                Collision::Left => reflect_x = ball_velocity.x< 0.0,
+                Collision::Right => reflect_x = ball_velocity.x > 0.0,
+                Collision::Top => reflect_y = ball_velocity.y > 0.0,
+                Collision::Bottom => reflect_y = ball_velocity.y < 0.0,
                 Collision::Inside => {}
             }
 
