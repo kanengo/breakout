@@ -108,7 +108,7 @@ fn main() {
             // check_ball_position_edge,
             check_collider_paddle,
             check_collider_ball,
-            gen_ball,
+            // gen_ball,
         ).chain()
         )
         // .add_systems(Update,(gen_ball))
@@ -159,7 +159,7 @@ fn setup(
     commands.spawn(Camera2dBundle::default());
 
     //paddle
-    let paddle_translation = Vec3::new(0.0, -240.0, 0.0);
+    let paddle_translation = Vec3::new(0.0, -300.0, 0.0);
     commands.spawn((
         SpriteBundle {
             transform: Transform {
@@ -242,6 +242,10 @@ fn spawn_chunk(commands: &mut Commands, chunk_pos: Vec2) {
             if (chunk_pos.y + brick_pos.y).abs() + BRICK_SIZE.y / 2.0 > TOP_EDGE {
                 continue
             }
+            if  (brick_pos.x + chunk_pos.x).abs() < 30.0 {
+                continue;
+            }
+        
             if ((chunk_pos.y - CHUNK_SIZE.y / 2.0) / CHUNK_SIZE.y).floor() as i32 == 0  && brick_row == 0{
                 let brick = commands.spawn((
                     SpriteBundle {
