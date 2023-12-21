@@ -91,10 +91,10 @@ impl ShowWindowInfoTimer {
 }
 
 #[derive(Event, Default)]
-struct CollisionEvent;
+struct CollisionEvent(Vec2);
 
 #[derive(Event)]
-struct GenRewardEvent(i32,i32);
+struct GenRewardEvent(Vec2,i32,i32);
 
 #[derive(Resource)]
 struct GenBallController {
@@ -152,7 +152,11 @@ fn main() {
         .add_event::<CollisionEvent>()
         .add_event::<GenRewardEvent>()
         .add_systems(Startup, setup)
-        .add_systems(Update,(check_ball_out_range,read_collision_events),)
+        .add_systems(Update,(
+            check_ball_out_range,
+            read_collision_events,
+            read_gen_reward_events)
+        )
         .add_systems(FixedUpdate,(
             move_paddle, 
             check_collider_paddle,
@@ -353,7 +357,7 @@ fn move_paddle(
         paddle_transform.translation.x += PADDLE_SPEED * time.delta_seconds();
     }
 
-    let left_bound = LEFT_EDGE - paddle_transform.scale.x / 2.0;
+    let left_bound = LEFT_EDGE + paddle_transform.scale.x / 2.0;
     let right_bound = RIGHT_EDGE - paddle_transform.scale.x / 2.0;
 
     paddle_transform.translation.x = paddle_transform.translation.x.clamp(left_bound, right_bound);
@@ -529,13 +533,13 @@ fn check_collider_ball(
         }
 
         if let Some((toi, collision_type, child)) = collision {
-            let (_, _, (brick_option, _)) = brick_query.get_mut(child).unwrap();
+            let (glabal_transform, _, (brick_option, _)) = brick_query.get_mut(child).unwrap();
 
             if let Some(mut brick) = brick_option {
                 brick.destroy = true;
                 commands.entity(child).despawn();
 
-                collision_events.send_default();
+                collision_events.send(CollisionEvent(glabal_transform.translation().truncate()));
             } else {
                 // println!("toi: {} collision: {:?} {} ball:{} v:{} delta:{}", toi, collision_type, gt.translation(), ball_transform.translation, ball_velocity.0, time.delta_seconds());
             }
@@ -714,27 +718,28 @@ fn read_collision_events(
         return
     }
     
-    let event_iter = collision_events.read();
-    let get_score= event_iter.count() as i32;
-    // for _ in collision_events.read() {
-    //     score.val += 1;
-    // // }
-    println!("get score:{}", get_score);
-    score.val += get_score;
-    let reward_count = (score.val - score.last_reward_val) / 10;
-    println!("reward_count: {}, {} {}", reward_count, score.val, score.last_reward_val);
-    if reward_count > 0 {
+    let get_score= collision_events.read().count() as i32;
+    if (score.val + get_score - score.last_reward_val) / 10 > 0 {
         let mut rng: rand::prelude::ThreadRng = rand::thread_rng();
-        score.last_reward_val = reward_count * 10;
-        for _ in 0..reward_count {
-            let r:f32 = rng.gen();
-            if r > 0.5 {
-                gen_reward_events.send(GenRewardEvent(1,3));
-            } else {
-                gen_reward_events.send(GenRewardEvent(2,3));
+        let mut count = 0;
+        for event in collision_events.read() {
+            count += 1;
+            if (score.val + count - score.last_reward_val) / 10 > 0{
+                score.last_reward_val += 10;
+                let r:f32 = rng.gen();
+                if r > 0.5 {
+                    gen_reward_events.send(GenRewardEvent(event.0, 1,3));
+                } else {
+                    gen_reward_events.send(GenRewardEvent(event.0, 2,3));
+                }
             }
         }
     }
+
+   
+
+    println!("get score:{}", get_score);
+    score.val += get_score;
 
     collision_events.clear();
 
@@ -743,4 +748,19 @@ fn read_collision_events(
         settings: PlaybackSettings::DESPAWN,
     });
     
+}
+
+fn read_gen_reward_events(
+    mut commands: Commands,
+    mut gen_reward_events: EventReader<GenRewardEvent>
+) {
+    if gen_reward_events.is_empty() {
+        return;
+    }
+
+    for event in gen_reward_events.read() {
+        println!("gen reward: {} {} {}", event.0, event.1, event.2)
+    }
+
+    gen_reward_events.clear();
 }
