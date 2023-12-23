@@ -28,9 +28,14 @@ const BALL_RADIUS: f32 = 4.0;
 
 const WALL_COLOR: Color = Color::GRAY;
 
+const BREAKOUT_COUNT_PER_REWARD: i32 = 5;
+
+const REWARD_SIZE: Vec2 = Vec2::new(20.0, 35.0);
+
 const CHUNK_BRICK_SIZE: Vec2 = Vec2::new(8.0, 8.0);
 const CHUNK_SIZE: Vec3 = Vec3::new(CHUNK_BRICK_SIZE.x * (BRICK_SIZE.x + GAP_BETWEEN_BRICKS),CHUNK_BRICK_SIZE.y * (BRICK_SIZE.y + GAP_BETWEEN_BRICKS),0.0);
 
+const MAX_BALL_COUNT: i32 = 5000;
 #[derive(Resource)]
 struct BrickCounter(u16);
 
@@ -54,31 +59,31 @@ struct Chunk;
 #[derive(Component)]
 struct WallBlock;
 
-#[derive(Component)]
+#[derive(Component, Clone, Copy, Debug)]
 struct RewardBrick {
     reward_type: i32,
     reward_param: i32,
 }
 
 #[derive(Bundle)]
-struct RewardBrickBundle {
+struct RewardBundle {
     sprite: SpriteBundle,
     reward: RewardBrick,
+    velocity: Velocity,
 }
 
-impl RewardBrickBundle {
-    // fn new() -> Self {
-    //     Self {
-    //         sprite: SpriteBundle{
-    //             texture: 
-    //             ..default()
-    //         },
-    //         reward: RewardBrick {
-    //             reward_type:1,
-    //             reward_param: 3
-    //         }
-    //     }
-    // }
+impl RewardBundle {
+    fn new(pos: Vec2, reward: RewardBrick, texture: Handle<Image>) -> Self{
+        Self {
+            sprite: SpriteBundle {
+                transform: Transform::from_translation(pos.extend(0.0)),
+                texture,
+                ..default()
+            },
+            reward,
+            velocity: Velocity(Vec2::new(0.0, -200.0)),
+        }
+    }
 }
 
 #[derive(Resource, Default)]
@@ -93,8 +98,11 @@ impl ShowWindowInfoTimer {
 #[derive(Event, Default)]
 struct CollisionEvent(Vec2);
 
-#[derive(Event)]
-struct GenRewardEvent(Vec2,i32,i32);
+#[derive(Event, Clone, Copy)]
+struct GenRewardEvent(Vec2, i32, i32);
+
+#[derive(Event, Deref, Debug, Clone, Copy)]
+struct ReceiveRewardEvent(RewardBrick);
 
 #[derive(Resource)]
 struct GenBallController {
@@ -104,7 +112,7 @@ struct GenBallController {
 }
 
 #[derive(Resource)]
-struct CollisonSound(Handle<AudioSource>);
+struct CollisionSound(Handle<AudioSource>);
 
 #[derive(Resource, Default)]
 struct Score {
@@ -151,18 +159,24 @@ fn main() {
         .insert_resource(Score::new())
         .add_event::<CollisionEvent>()
         .add_event::<GenRewardEvent>()
+        .add_event::<ReceiveRewardEvent>()
         .add_systems(Startup, setup)
         .add_systems(Update,(
             check_ball_out_range,
             read_collision_events,
-            read_gen_reward_events)
+            read_gen_reward_events,
+            read_receive_reward_events,
+        )
         )
         .add_systems(FixedUpdate,(
-            move_paddle, 
+            (
+            move_paddle,
+            apply_velocity,
             check_collider_paddle,
             check_collider_ball,
             ).chain(),
-        )
+            check_receive_rewards,
+        ))
         // .add_systems(Update,(gen_ball))
         .run();
 }
@@ -214,7 +228,7 @@ fn setup(
 
     //sounds
     let ball_collision_sound = asset_server.load("sounds/breakout_collision.ogg");
-    commands.insert_resource(CollisonSound(ball_collision_sound));
+    commands.insert_resource(CollisionSound(ball_collision_sound));
     //paddle
     let paddle_translation = Vec3::new(0.0, -300.0, 0.0);
     commands.spawn((
@@ -299,7 +313,7 @@ fn spawn_chunk(commands: &mut Commands, chunk_pos: Vec2, score: &mut ResMut<Scor
             if (chunk_pos.y + brick_pos.y).abs() + BRICK_SIZE.y / 2.0 > TOP_EDGE {
                 continue
             }
-            if  (brick_pos.x + chunk_pos.x).abs() < 30.0 {
+            if  (brick_pos.x + chunk_pos.x).abs() < 40.0 {
                 continue;
             }
         
@@ -370,7 +384,7 @@ fn gizmos_system(mut gizmos:Gizmos, query: Query<&Transform, With<Chunk>>) {
     }
 }
 
-fn apply_velocity(mut query: Query<(&mut Transform, &Velocity)>, time: Res<Time>) {
+fn apply_velocity(mut query: Query<(&mut Transform, &Velocity), Without<Ball>>, time: Res<Time>) {
     // println!("delta: {}", time.delta_seconds() * 1000.0);
     for (mut transform, velocity) in &mut query {
         transform.translation.x += velocity.x * time.delta_seconds();
@@ -663,71 +677,27 @@ fn check_collider(
     // println!("delta:{}",SystemTime::now().duration_since(start_time).unwrap().as_micros())
 }
 
-fn gen_ball(
-    mut commands: Commands,
-    time: Res<Time>,
-    mut controller: ResMut<GenBallController>,
-    ball_query: Query<(&Transform, &Velocity), With<Ball>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-) {
-    if controller.ball_count < 3000 && controller.timer.tick(time.delta()).just_finished() {
-        let mesh_handler: Mesh2dHandle = meshes.add(shape::Circle::default().into()).into();
-        let material_handler = materials.add(ColorMaterial::from(BALL_COLOR));
-        let mut rng = rand::thread_rng();
-        for (transform, ball_velocity) in &ball_query {
-            for _ in 0..2 {
-                let velocity_x = rng.gen_range(-BALL_SPEED..BALL_SPEED);
-                let mut velocity_y = (2.0*BALL_SPEED.powf(2.0) - velocity_x.abs().powf(2.0)).sqrt();
-                if ball_velocity.y < 0.0 {
-                    velocity_y = -velocity_y
-                }
-                // if rng.gen::<f32>() > 0.5 {
-                    // velocity_y = -velocity_y;
-                // }
-                commands.spawn((
-                    MaterialMesh2dBundle {
-                        mesh: mesh_handler.clone(),
-                        material: material_handler.clone(),
-                        transform: Transform::from_translation(transform.translation).with_scale(transform.scale),
-                        ..default()
-                    },
-                    Ball,
-                    Velocity(Vec2::new(velocity_x, velocity_y)),
-                ));
-            }
-            controller.ball_count += 3;
-            if controller.ball_count >= 3000 {
-                break
-            }
-        }
-    }
-}
-
-
-
-
 fn read_collision_events(
     mut commands: Commands,
     mut collision_events: EventReader<CollisionEvent>,
     mut gen_reward_events: EventWriter<GenRewardEvent>,
     mut score: ResMut<Score>,
-    sound: Res<CollisonSound>,
+    sound: Res<CollisionSound>,
 ) {
     if collision_events.is_empty() {
         return
     }
-    
-    let get_score= collision_events.read().count() as i32;
-    if (score.val + get_score - score.last_reward_val) / 10 > 0 {
+
+    let get_score= collision_events.len() as i32;
+    if (score.val + get_score - score.last_reward_val) / BREAKOUT_COUNT_PER_REWARD > 0 {
         let mut rng: rand::prelude::ThreadRng = rand::thread_rng();
         let mut count = 0;
         for event in collision_events.read() {
             count += 1;
-            if (score.val + count - score.last_reward_val) / 10 > 0{
-                score.last_reward_val += 10;
+            if (score.val + count - score.last_reward_val) / BREAKOUT_COUNT_PER_REWARD > 0{
+                score.last_reward_val += BREAKOUT_COUNT_PER_REWARD;
                 let r:f32 = rng.gen();
-                if r > 0.5 {
+                if r > 0.0 {
                     gen_reward_events.send(GenRewardEvent(event.0, 1,3));
                 } else {
                     gen_reward_events.send(GenRewardEvent(event.0, 2,3));
@@ -738,7 +708,7 @@ fn read_collision_events(
 
    
 
-    println!("get score:{}", get_score);
+    // println!("get score:{}", get_score);
     score.val += get_score;
 
     collision_events.clear();
@@ -752,15 +722,116 @@ fn read_collision_events(
 
 fn read_gen_reward_events(
     mut commands: Commands,
-    mut gen_reward_events: EventReader<GenRewardEvent>
+    mut gen_reward_events: EventReader<GenRewardEvent>,
+    asset_server: Res<AssetServer>,
 ) {
     if gen_reward_events.is_empty() {
         return;
     }
 
-    for event in gen_reward_events.read() {
-        println!("gen reward: {} {} {}", event.0, event.1, event.2)
+    for &event in gen_reward_events.read() {
+        println!("gen reward: {} {} {}", event.0, event.1, event.2);
+        let texture;
+        if event.1 == 1 {
+            texture = asset_server.load("rewards/reward_1.png")
+        } else if event.1 == 2 {
+            texture = asset_server.load("rewards/reward_2.png")
+        } else {
+            continue;
+        }
+        commands.spawn(RewardBundle::new(event.0, RewardBrick{
+            reward_type: event.1,
+            reward_param: event.2,
+        }, texture));
     }
 
     gen_reward_events.clear();
+}
+
+fn check_receive_rewards(
+    mut commands: Commands,
+    paddle_query: Query<&Transform, With<Paddle>>,
+    reward_query: Query<(&Transform, Entity, &RewardBrick), With<RewardBrick>>,
+    mut receive_reward_event: EventWriter<ReceiveRewardEvent>,
+) {
+    let paddle = paddle_query.single();
+    for (&transform, reward_entity, &reward_brick) in &reward_query {
+        if collide(transform.translation, REWARD_SIZE, paddle.translation, paddle.scale.truncate()).is_none() {
+            continue
+        }
+        receive_reward_event.send(ReceiveRewardEvent(reward_brick));
+        commands.entity(reward_entity).despawn();
+    }
+
+}
+
+fn read_receive_reward_events(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut controller: ResMut<GenBallController>,
+    mut receive_reward_event: EventReader<ReceiveRewardEvent>,
+    ball_query: Query<(&Transform, &Velocity), With<Ball>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    if receive_reward_event.is_empty() {
+        return;
+    }
+
+    for &event in receive_reward_event.read() {
+        println!("receive reward event:{:?}", event.0);
+        match event.reward_type {
+            1 => {
+                println!("receive reward 1");
+                if controller.ball_count < MAX_BALL_COUNT {
+                    let mesh_handler: Mesh2dHandle = meshes.add(shape::Circle::default().into()).into();
+                    let material_handler = materials.add(ColorMaterial::from(BALL_COLOR));
+                    let mut rng = rand::thread_rng();
+                    for (transform, ball_velocity) in &ball_query {
+                        for _ in 0..event.reward_param {
+                            let velocity_x = rng.gen_range(-BALL_SPEED..BALL_SPEED);
+                            let mut velocity_y = (2.0*BALL_SPEED.powf(2.0) - velocity_x.abs().powf(2.0)).sqrt();
+                            if ball_velocity.y < 0.0 {
+                                velocity_y = -velocity_y
+                            }
+                            // if rng.gen::<f32>() > 0.5 {
+                            // velocity_y = -velocity_y;
+                            // }
+                            commands.spawn((
+                                MaterialMesh2dBundle {
+                                    mesh: mesh_handler.clone(),
+                                    material: material_handler.clone(),
+                                    transform: Transform::from_translation(transform.translation).with_scale(transform.scale),
+                                    ..default()
+                                },
+                                Ball,
+                                Velocity(Vec2::new(velocity_x, velocity_y)),
+                            ));
+                        }
+                        controller.ball_count += event.reward_param;
+                        if controller.ball_count >= MAX_BALL_COUNT {
+                            break
+                        }
+                    }
+                }
+            },
+            2 => {
+
+            },
+            _ => {}
+        }
+    }
+
+    receive_reward_event.clear();
+}
+
+fn gen_ball(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut controller: ResMut<GenBallController>,
+    ball_query: Query<(&Transform, &Velocity), With<Ball>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+
 }
