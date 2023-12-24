@@ -5,6 +5,7 @@ use bevy::{
 };
 use bevy::sprite::collide_aabb::Collision;
 use rand::Rng;
+use std::collections::HashMap;
 
 
 const PADDLE_SIZE: Vec3 = Vec3::new(80.0, 10.0, 0.0);
@@ -119,11 +120,15 @@ struct Score {
     val: i32,
     last_reward_val: i32,
     ball_count: i32,
+    last_reward_time: HashMap<i32,f32>,
 }
 
 impl Score {
     fn new() -> Self {
-       Default::default()
+       Self {
+           last_reward_time: HashMap::new(),
+           ..default()
+       }
     }
 }
 
@@ -132,7 +137,7 @@ impl GenBallController {
         // let mesh = meshes.add(shape::Circle::default().into()).into();
         Self {
             timer: Timer::from_seconds(3.0, TimerMode::Repeating),
-            ball_count: 0,
+            ball_count: 1,
             // mesh: mesh,
         }
     }
@@ -405,12 +410,34 @@ fn check_paddle_position_edge(mut query: Query<&mut Transform, With<Paddle>>) {
 fn check_ball_out_range(
     mut commands: Commands, 
     query: Query<(Entity, &Transform), With<Ball>>,
+    paddle_query: Query<&Transform, With<Paddle>>,
     mut controller: ResMut<GenBallController>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     for (entity, ball_transform) in &query {
-       if ball_transform.translation.y + BALL_RADIUS <= BOTTOM_EDGE {
+        if ball_transform.translation.y + BALL_RADIUS <= BOTTOM_EDGE {
             commands.entity(entity).despawn();
             controller.ball_count -= 1;
+
+            if controller.ball_count == 0 {
+                let paddle_transform = paddle_query.single();
+                let mut rng = rand::thread_rng();
+                let ball_start_x = paddle_transform.translation.x - PADDLE_SIZE.x / 2.0;
+                let ball_start_y = paddle_transform.translation.x + PADDLE_SIZE.x / 2.0;
+                let ball_translation = Vec3::new(rng.gen_range(ball_start_x..ball_start_y), paddle_transform.translation.y, 0.0);
+                commands.spawn((
+                    MaterialMesh2dBundle {
+                        mesh: meshes.add(shape::Circle::default().into()).into(),
+                        material: materials.add(ColorMaterial::from(BALL_COLOR)),
+                        transform: Transform::from_translation(ball_translation).with_scale(Vec2::new(BALL_RADIUS * 2.0, BALL_RADIUS * 2.0).extend(0.0)),
+                        ..default()
+                    },
+                    Ball,
+                    Velocity(Vec2::new(BALL_SPEED, BALL_SPEED)),
+                ));
+                controller.ball_count += 1;
+            }
         }
     }
 }
@@ -682,6 +709,7 @@ fn read_collision_events(
     mut collision_events: EventReader<CollisionEvent>,
     mut gen_reward_events: EventWriter<GenRewardEvent>,
     mut score: ResMut<Score>,
+    time: Res<Time>,
     sound: Res<CollisionSound>,
 ) {
     if collision_events.is_empty() {
@@ -697,11 +725,25 @@ fn read_collision_events(
             if (score.val + count - score.last_reward_val) / BREAKOUT_COUNT_PER_REWARD > 0{
                 score.last_reward_val += BREAKOUT_COUNT_PER_REWARD;
                 let r:f32 = rng.gen();
-                if r > 0.0 {
-                    gen_reward_events.send(GenRewardEvent(event.0, 1,3));
+                let reward_type;
+                if r > 0.6 {
+                    reward_type = 1;
                 } else {
-                    gen_reward_events.send(GenRewardEvent(event.0, 2,3));
+                    reward_type = 2;
                 }
+                let val = score.last_reward_time.get(&reward_type);
+                match val {
+                    Some(last_tick) => {
+                        if time.elapsed_seconds() - last_tick < 5.0 {
+                            continue
+                        }
+                        score.last_reward_time.insert(reward_type, time.elapsed_seconds());
+                    }
+                    None => {
+                        score.last_reward_time.insert(reward_type, time.elapsed_seconds());
+                    }
+                }
+                gen_reward_events.send(GenRewardEvent(event.0, reward_type, 2));
             }
         }
     }
@@ -767,12 +809,12 @@ fn check_receive_rewards(
 
 fn read_receive_reward_events(
     mut commands: Commands,
-    time: Res<Time>,
     mut controller: ResMut<GenBallController>,
     mut receive_reward_event: EventReader<ReceiveRewardEvent>,
     ball_query: Query<(&Transform, &Velocity), With<Ball>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    paddle_query: Query<&Transform, With<Paddle>>,
 ) {
     if receive_reward_event.is_empty() {
         return;
@@ -816,7 +858,24 @@ fn read_receive_reward_events(
                 }
             },
             2 => {
-
+                for _ in 0..event.reward_param {
+                    let paddle_transform = paddle_query.single();
+                    let mut rng = rand::thread_rng();
+                    let ball_start_x = paddle_transform.translation.x - PADDLE_SIZE.x / 2.0;
+                    let ball_start_y = paddle_transform.translation.x + PADDLE_SIZE.x / 2.0;
+                    let ball_translation = Vec3::new(rng.gen_range(ball_start_x..ball_start_y), paddle_transform.translation.y, 0.0);
+                    commands.spawn((
+                        MaterialMesh2dBundle {
+                            mesh: meshes.add(shape::Circle::default().into()).into(),
+                            material: materials.add(ColorMaterial::from(BALL_COLOR)),
+                            transform: Transform::from_translation(ball_translation).with_scale(Vec2::new(BALL_RADIUS * 2.0, BALL_RADIUS * 2.0).extend(0.0)),
+                            ..default()
+                        },
+                        Ball,
+                        Velocity(Vec2::new(BALL_SPEED, BALL_SPEED)),
+                    ));
+                    controller.ball_count += 1;
+                }
             },
             _ => {}
         }
