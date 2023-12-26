@@ -1,7 +1,7 @@
 mod collide;
 
 use bevy::{
-    prelude::*, sprite::{MaterialMesh2dBundle, collide_aabb::collide, Mesh2dHandle},
+    prelude::*, sprite::{MaterialMesh2dBundle, collide_aabb::collide, Mesh2dHandle}, input::mouse::MouseMotion,
 };
 use bevy::sprite::collide_aabb::Collision;
 use rand::Rng;
@@ -16,7 +16,8 @@ const BRICK_SIZE: Vec3 = Vec3::new(10.0, 10.0,0.0);
 const BRICK_COLOR: Color = Color::GREEN;
 const GAP_BETWEEN_BRICKS: f32 = 2.0;
 
-const BACKGROUND_COLOR: Color = Color::BLACK;
+const BACKGROUND_COLOR: Color = Color::rgb(35.0/255.0, 35.0/255.0, 105.0/255.0);
+const EDGE_COLOR: Color = Color::rgb(25.0/255.0, 25.0/255.0, 72.0/255.0);
 const RIGHT_EDGE: f32 = 640.0;
 const LEFT_EDGE: f32 = -640.0;
 const TOP_EDGE: f32 = 360.0;
@@ -171,6 +172,7 @@ fn main() {
             read_collision_events,
             read_gen_reward_events,
             read_receive_reward_events,
+            print_mouse_events,
         )
         )
         .add_systems(FixedUpdate,(
@@ -234,6 +236,16 @@ fn setup(
     //sounds
     let ball_collision_sound = asset_server.load("sounds/breakout_collision.ogg");
     commands.insert_resource(CollisionSound(ball_collision_sound));
+
+    commands.spawn(SpriteBundle {
+        transform: Transform::from_scale(Vec3::new(RIGHT_EDGE - LEFT_EDGE, TOP_EDGE - BOTTOM_EDGE, 0.0)),
+        sprite: Sprite {
+            color: EDGE_COLOR,
+            ..default()
+        },
+        ..default()
+    });
+
     //paddle
     let paddle_translation = Vec3::new(0.0, -300.0, 0.0);
     commands.spawn((
@@ -893,4 +905,17 @@ fn gen_ball(
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
 
+}
+
+fn print_mouse_events(
+    mut cursor_moved_events: EventReader<CursorMoved>,
+    mut mouse_motion_events: EventReader<MouseMotion>,
+) {
+    for event in mouse_motion_events.read() {
+        info!("{:?}", event);
+    }
+
+    for event in cursor_moved_events.read() {
+        info!("{:?}", event);
+    }
 }
