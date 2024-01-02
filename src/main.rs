@@ -7,6 +7,8 @@ use bevy::sprite::collide_aabb::Collision;
 use rand::Rng;
 use std::collections::HashMap;
 
+const SCREEN_SIZE:(f32, f32) = (900.0, 860.0);
+const EDGE_SIZE:(f32, f32) = (840.0, 840.0);
 
 const PADDLE_SIZE: Vec3 = Vec3::new(80.0, 10.0, 0.0);
 const PADDLE_COLOR: Color = Color::WHITE;
@@ -18,6 +20,8 @@ const GAP_BETWEEN_BRICKS: f32 = 2.0;
 
 const BACKGROUND_COLOR: Color = Color::rgb(35.0/255.0, 35.0/255.0, 105.0/255.0);
 const EDGE_COLOR: Color = Color::rgb(25.0/255.0, 25.0/255.0, 72.0/255.0);
+
+
 const RIGHT_EDGE: f32 = 640.0;
 const LEFT_EDGE: f32 = -640.0;
 const TOP_EDGE: f32 = 360.0;
@@ -157,7 +161,16 @@ struct Collider(ColliderType);
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins((
+            DefaultPlugins.set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "breakout".into(),
+                    resolution: SCREEN_SIZE.into(),
+                    ..default()
+                 }),
+                ..default()
+            }),
+        ))
         .insert_resource(BrickCounter(100))
         .insert_resource(ClearColor(BACKGROUND_COLOR))
         .insert_resource(ShowWindowInfoTimer::new())
@@ -172,7 +185,7 @@ fn main() {
             read_collision_events,
             read_gen_reward_events,
             read_receive_reward_events,
-            print_mouse_events,
+            // print_mouse_events,
         )
         )
         .add_systems(FixedUpdate,(
@@ -237,14 +250,14 @@ fn setup(
     let ball_collision_sound = asset_server.load("sounds/breakout_collision.ogg");
     commands.insert_resource(CollisionSound(ball_collision_sound));
 
-    commands.spawn(SpriteBundle {
-        transform: Transform::from_scale(Vec3::new(RIGHT_EDGE - LEFT_EDGE, TOP_EDGE - BOTTOM_EDGE, 0.0)),
-        sprite: Sprite {
-            color: EDGE_COLOR,
-            ..default()
-        },
-        ..default()
-    });
+    // commands.spawn(SpriteBundle {
+    //     transform: Transform::from_scale(Vec3::new(RIGHT_EDGE - LEFT_EDGE, TOP_EDGE - BOTTOM_EDGE, 0.0)),
+    //     sprite: Sprite {
+    //         color: EDGE_COLOR,
+    //         ..default()
+    //     },
+    //     ..default()
+    // });
 
     //paddle
     let paddle_translation = Vec3::new(0.0, -300.0, 0.0);
@@ -919,3 +932,6 @@ fn print_mouse_events(
         info!("{:?}", event);
     }
 }
+
+
+
