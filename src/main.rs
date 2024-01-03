@@ -1,11 +1,13 @@
 mod collide;
+mod json_plugin;
 
 use bevy::{
-    prelude::*, sprite::{MaterialMesh2dBundle, collide_aabb::collide, Mesh2dHandle}, input::mouse::MouseMotion,
+    prelude::*, sprite::{MaterialMesh2dBundle, collide_aabb::collide, Mesh2dHandle}, input::mouse::MouseMotion, utils::{HashMap},
 };
 use bevy::sprite::collide_aabb::Collision;
+use json_plugin::JsonAssetPlugin;
 use rand::Rng;
-use std::collections::HashMap;
+use serde::{Serialize, Deserialize};
 
 const SCREEN_SIZE:(f32, f32) = (900.0, 860.0);
 const EDGE_SIZE:(f32, f32) = (840.0, 840.0);
@@ -61,6 +63,11 @@ struct Brick {
 
 #[derive(Component,Default)]
 struct Chunk;
+
+#[derive(Component)]
+struct ChunkV2 {
+    bricks: HashMap<Entity,u8>,
+}
 
 #[derive(Component)]
 struct WallBlock;
@@ -159,6 +166,27 @@ enum ColliderType {
 #[derive(Component, Deref, DerefMut)]
 struct Collider(ColliderType);
 
+#[derive(Default, Serialize, Deserialize,Debug)]
+struct BrickData {
+   brick_type: u8,
+   color: Color,
+   pos: Vec2,
+}
+
+#[derive(Serialize, Deserialize, Asset, TypePath,Debug)]
+struct Level {
+    bricks: Vec<BrickData>,
+}
+#[derive(Resource)]
+struct LevelHandler(Handle<Level>);
+
+#[derive(Debug,Clone, Copy,Default,Eq,PartialEq,Hash,States)]
+enum AppState {
+    #[default]
+    Loading,
+    Level,
+}
+
 fn main() {
     App::new()
         .add_plugins((
@@ -170,7 +198,9 @@ fn main() {
                  }),
                 ..default()
             }),
+            JsonAssetPlugin::<Level>::new(&["json"])
         ))
+        .add_state::<AppState>()
         .insert_resource(BrickCounter(100))
         .insert_resource(ClearColor(BACKGROUND_COLOR))
         .insert_resource(ShowWindowInfoTimer::new())
@@ -179,7 +209,11 @@ fn main() {
         .add_event::<CollisionEvent>()
         .add_event::<GenRewardEvent>()
         .add_event::<ReceiveRewardEvent>()
-        .add_systems(Startup, setup)
+        .add_systems(Startup, (
+            load_level,
+            setup,
+        ))
+        .add_systems(Update, spawn_level.run_if(in_state(AppState::Loading)))
         .add_systems(Update,(
             check_ball_out_range,
             read_collision_events,
@@ -233,6 +267,16 @@ fn show_info(windows: Query<&Window>, time: Res<Time>, mut timer: ResMut<ShowWin
     }
 }
 
+fn load_level(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    // mut level_handler: ResMut<LevelHandler>,
+)  {
+    let level = asset_server.load("levels/level_1.json");
+    let level_handler = LevelHandler(level);
+
+    commands.insert_resource(level_handler);
+}
 
 
 fn setup(
@@ -242,22 +286,21 @@ fn setup(
     mut score: ResMut<Score>,
     asset_server: Res<AssetServer>,
 ) {
-
     //camera
     commands.spawn(Camera2dBundle::default());
 
     //sounds
-    let ball_collision_sound = asset_server.load("sounds/breakout_collision.ogg");
+    let ball_collision_sound: Handle<AudioSource> = asset_server.load("sounds/breakout_collision.ogg");
     commands.insert_resource(CollisionSound(ball_collision_sound));
 
-    // commands.spawn(SpriteBundle {
-    //     transform: Transform::from_scale(Vec3::new(RIGHT_EDGE - LEFT_EDGE, TOP_EDGE - BOTTOM_EDGE, 0.0)),
-    //     sprite: Sprite {
-    //         color: EDGE_COLOR,
-    //         ..default()
-    //     },
-    //     ..default()
-    // });
+    commands.spawn(SpriteBundle {
+        transform: Transform::from_scale(Vec3::new(EDGE_SIZE.0, EDGE_SIZE.1, -10.0)),
+        sprite: Sprite {
+            color: EDGE_COLOR,
+            ..default()
+        },
+        ..default()
+    });
 
     //paddle
     let paddle_translation = Vec3::new(0.0, -300.0, 0.0);
@@ -296,21 +339,104 @@ fn setup(
         Velocity(Vec2::new(BALL_SPEED, BALL_SPEED)),
     ));
 
-    let max_chunk_col = (RIGHT_EDGE / CHUNK_SIZE.x).ceil();
-    let max_chunk_row = (TOP_EDGE / CHUNK_SIZE.y).ceil();
+    // let max_chunk_col = (RIGHT_EDGE / CHUNK_SIZE.x).ceil();
+    // let max_chunk_row = (TOP_EDGE / CHUNK_SIZE.y).ceil();
 
-    for c in 0..max_chunk_col as i32 {
-        for r in 0..max_chunk_row as i32 {
-            let x = CHUNK_SIZE.x / 2.0 + (CHUNK_SIZE.x * c as f32);
-            let y = CHUNK_SIZE.y / 2.0 + (CHUNK_SIZE.y * r as f32);
+    // for c in 0..max_chunk_col as i32 {
+    //     for r in 0..max_chunk_row as i32 {
+    //         let x = CHUNK_SIZE.x / 2.0 + (CHUNK_SIZE.x * c as f32);
+    //         let y = CHUNK_SIZE.y / 2.0 + (CHUNK_SIZE.y * r as f32);
 
-            let chunk_pos = Vec2::new(x, y);
-            spawn_chunk(&mut commands,chunk_pos, &mut score);
+    //         let chunk_pos = Vec2::new(x, y);
+    //         spawn_chunk(&mut commands,chunk_pos, &mut score);
 
-            let chunk_pos = Vec2::new(-x, y);
-            spawn_chunk(&mut commands,chunk_pos, &mut score);
+    //         let chunk_pos = Vec2::new(-x, y);
+    //         spawn_chunk(&mut commands,chunk_pos, &mut score);
+    //     }
+    // }
+}
+
+fn spawn_level(
+    mut commands: Commands,
+    mut levels: ResMut<Assets<Level>>,
+    level_handle: Res<LevelHandler>,
+    mut state: ResMut<NextState<AppState>>
+){
+
+    if let Some(level) = levels.remove(level_handle.0.id()) {
+        // println!("level:{:?}", level);
+        let mut chunk_m = HashMap::new();
+        for level_brick in &level.bricks {
+            let zone;
+            if level_brick.pos.x > 0.0 {
+                if level_brick.pos.y > 0.0 {
+                    zone = 1;
+                } else {
+                    zone = 4;
+                }
+            } else {
+                if level_brick.pos.y > 0.0 {
+                    zone = 2;
+                } else {
+                    zone = 3;
+                }
+            }
+            let x = level_brick.pos.x.abs() / (CHUNK_BRICK_SIZE.x * BRICK_SIZE.x + GAP_BETWEEN_BRICKS).floor();
+            let y = level_brick.pos.y.abs() / (CHUNK_BRICK_SIZE.y * BRICK_SIZE.y + GAP_BETWEEN_BRICKS).floor();
+            let index = zone * 10_000_000 + x as i32 * 1000_000 + y as i32 * 1000;
+
+            if !chunk_m.contains_key(&index) {
+                chunk_m.insert(index, ChunkV2{
+                    bricks: HashMap::new(),
+                });
+            }
+            // println!("level brick:{:?}", level_brick);
+            let  chunk = chunk_m.get_mut(&index).unwrap();
+            let brick_id;
+            match level_brick.brick_type {
+                0 =>{
+                    brick_id = commands.spawn((
+                        SpriteBundle {
+                            sprite: Sprite {
+                                color: level_brick.color,
+                                ..default()
+                            },
+                            // global_transform: GlobalTransform::from(Transform::IDENTITY),
+                            transform: Transform::from_translation(level_brick.pos.extend(0.0)).with_scale(BRICK_SIZE),
+                            ..default()
+                        },
+                        Brick {
+                            destroy:false,
+                        },
+                        Collider(ColliderType::BRICK)
+                    )).id();
+                },
+                1 => {
+                    brick_id = commands.spawn((
+                        SpriteBundle {
+                            sprite: Sprite {
+                                color: level_brick.color,
+                                ..default()
+                            },
+                            // global_transform: GlobalTransform::from(Transform::IDENTITY),
+                            transform: Transform::from_translation(level_brick.pos.extend(0.0)).with_scale(BRICK_SIZE),
+                            ..default()
+                        },
+                        WallBlock,
+                        Collider(ColliderType::WALL),
+                    )).id();
+                }
+                _ => {
+                    continue;
+                }
+            }
+        
+            chunk.bricks.insert(brick_id, 1);
         }
+        state.set(AppState::Level);
     }
+
+    
 }
 
 fn spawn_chunk(commands: &mut Commands, chunk_pos: Vec2, score: &mut ResMut<Score>) {
@@ -386,7 +512,6 @@ fn spawn_chunk(commands: &mut Commands, chunk_pos: Vec2, score: &mut ResMut<Scor
         }
     }
 }
-
 
 fn move_paddle(
     keyboard_input: Res<Input<KeyCode>>,
