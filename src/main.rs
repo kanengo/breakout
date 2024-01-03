@@ -2,7 +2,7 @@ mod collide;
 mod json_plugin;
 
 use bevy::{
-    prelude::*, sprite::{MaterialMesh2dBundle, collide_aabb::collide, Mesh2dHandle}, input::mouse::MouseMotion, utils::{HashMap},
+    prelude::*, sprite::{MaterialMesh2dBundle, collide_aabb::collide, Mesh2dHandle}, input::mouse::MouseMotion, utils::{HashMap}, transform,
 };
 use bevy::sprite::collide_aabb::Collision;
 use json_plugin::JsonAssetPlugin;
@@ -24,10 +24,10 @@ const BACKGROUND_COLOR: Color = Color::rgb(35.0/255.0, 35.0/255.0, 105.0/255.0);
 const EDGE_COLOR: Color = Color::rgb(25.0/255.0, 25.0/255.0, 72.0/255.0);
 
 
-const RIGHT_EDGE: f32 = 640.0;
-const LEFT_EDGE: f32 = -640.0;
-const TOP_EDGE: f32 = 360.0;
-const BOTTOM_EDGE: f32 = -360.0;
+const RIGHT_EDGE: f32 = EDGE_SIZE.0 / 2.0;
+const LEFT_EDGE: f32 = -RIGHT_EDGE;
+const TOP_EDGE: f32 = EDGE_SIZE.1 / 2.0;
+const BOTTOM_EDGE: f32 = -TOP_EDGE;
 
 const BALL_COLOR: Color = Color::WHITE;
 // const BALL_SIZE: Vec3 = Vec3::new(8.0, 8.0, 0.0);
@@ -219,6 +219,7 @@ fn main() {
             read_collision_events,
             read_gen_reward_events,
             read_receive_reward_events,
+            // draw_chunk_rect,
             // print_mouse_events,
         )
         )
@@ -327,7 +328,7 @@ fn setup(
     let mut rng = rand::thread_rng();
     let ball_start_x = paddle_translation.x - PADDLE_SIZE.x / 2.0;
     let ball_start_y = paddle_translation.x + PADDLE_SIZE.x / 2.0;
-    let ball_translation = Vec3::new(rng.gen_range(ball_start_x..ball_start_y), paddle_translation.y, 0.0);
+    let ball_translation = Vec3::new(rng.gen_range(ball_start_x..ball_start_y), paddle_translation.y, 1.0);
     commands.spawn((
         MaterialMesh2dBundle {
             mesh: meshes.add(shape::Circle::default().into()).into(),
@@ -360,14 +361,17 @@ fn spawn_level(
     mut commands: Commands,
     mut levels: ResMut<Assets<Level>>,
     level_handle: Res<LevelHandler>,
-    mut state: ResMut<NextState<AppState>>
+    mut state: ResMut<NextState<AppState>>,
 ){
-
     if let Some(level) = levels.remove(level_handle.0.id()) {
         // println!("level:{:?}", level);
+        let chunk_size = Vec2::new(
+            (BRICK_SIZE.x + GAP_BETWEEN_BRICKS) * CHUNK_BRICK_SIZE.x,
+            (BRICK_SIZE.y + GAP_BETWEEN_BRICKS) * CHUNK_BRICK_SIZE.y,
+        );
         let mut chunk_m = HashMap::new();
         for level_brick in &level.bricks {
-            let zone;
+            let zone: i64;
             if level_brick.pos.x > 0.0 {
                 if level_brick.pos.y > 0.0 {
                     zone = 1;
@@ -381,9 +385,10 @@ fn spawn_level(
                     zone = 3;
                 }
             }
-            let x = level_brick.pos.x.abs() / (CHUNK_BRICK_SIZE.x * BRICK_SIZE.x + GAP_BETWEEN_BRICKS).floor();
-            let y = level_brick.pos.y.abs() / (CHUNK_BRICK_SIZE.y * BRICK_SIZE.y + GAP_BETWEEN_BRICKS).floor();
-            let index = zone * 10_000_000 + x as i32 * 1000_000 + y as i32 * 1000;
+            let x = ((level_brick.pos.x.abs() / chunk_size.x).floor()) as i64;
+            let y = ((level_brick.pos.y.abs() / chunk_size.y).floor()) as i64;
+
+            let index = (zone << 32)  + (x << 16) + y;
 
             if !chunk_m.contains_key(&index) {
                 chunk_m.insert(index, ChunkV2{
@@ -433,10 +438,73 @@ fn spawn_level(
         
             chunk.bricks.insert(brick_id, 1);
         }
+
+        for (&index, chunk) in &chunk_m {
+            let zone = index >> 32;
+            let mut x = (index >> 16 & ((1 << 16) - 1)) as f32;
+            let mut y = (index & ((1 << 16) - 1)) as f32;
+          
+            x = x * (chunk_size.x) + chunk_size.x / 2.0;
+            y = y * (chunk_size.y) + chunk_size.y / 2.0;
+           
+
+            match zone {
+                1 => {}
+                2 => {
+                    x = -x;
+                }
+                3 => {
+                    x = -x;
+                    y = -y;
+                }
+                4 => {
+                    y = -y;
+                }
+                _ => {}
+            };
+            
+            // info!("zone:{} x: {} y: {} index:{}", zone, x, y, index);
+            
+            let chunk_pos = Vec2::new(
+               x,y
+            );
+            info!("chunk_pos: {} x {} y {}", chunk_pos, x, y);
+            commands.spawn((
+                SpatialBundle {
+                    transform: Transform::from_translation(chunk_pos.extend(0.0))
+                        .with_scale(Vec3::new(
+                            (BRICK_SIZE.x + GAP_BETWEEN_BRICKS) * CHUNK_BRICK_SIZE.x,
+                            (BRICK_SIZE.y + GAP_BETWEEN_BRICKS) * CHUNK_BRICK_SIZE.y,
+                            0.0
+                        )),
+                    ..default()
+                },
+                ChunkV2 {
+                    bricks: chunk.bricks.to_owned()
+                },
+                Collider(ColliderType::CHUNK)
+            ));
+        }
+
         state.set(AppState::Level);
     }
 
     
+}
+
+
+fn draw_chunk_rect(
+    mut gizmos: Gizmos,
+    chunk_query: Query<&Transform, With<ChunkV2>>
+) {
+    for transform in &chunk_query {
+        gizmos.rect_2d(
+            transform.translation.truncate(), 
+            0.0, 
+            transform.scale.truncate(), 
+            Color::WHITE,
+        );
+    }
 }
 
 fn spawn_chunk(commands: &mut Commands, chunk_pos: Vec2, score: &mut ResMut<Score>) {
@@ -516,7 +584,7 @@ fn spawn_chunk(commands: &mut Commands, chunk_pos: Vec2, score: &mut ResMut<Scor
 fn move_paddle(
     keyboard_input: Res<Input<KeyCode>>,
     time: Res<Time>,
-    mut query: Query<&mut Transform, With<Paddle>>
+    mut query: Query<&mut Transform, With<Paddle>>,
 ) {
     let mut paddle_transform = query.single_mut();
 
@@ -525,6 +593,8 @@ fn move_paddle(
     } else if keyboard_input.pressed(KeyCode::D) || keyboard_input.pressed(KeyCode::Right) {
         paddle_transform.translation.x += PADDLE_SPEED * time.delta_seconds();
     }
+
+    
 
     let left_bound = LEFT_EDGE + paddle_transform.scale.x / 2.0;
     let right_bound = RIGHT_EDGE - paddle_transform.scale.x / 2.0;
@@ -619,9 +689,9 @@ fn check_collider_paddle(
 
 fn check_collider_ball(
     mut commands: Commands,
-    mut ball_query: Query<(&mut Transform, &mut Velocity), (With<Ball>,Without<Chunk>)>,
-    chunk_query: Query<(&Transform, &Children), (With<Chunk>, Without<Ball>)>,
-    mut brick_query: Query<(&GlobalTransform, &Transform, AnyOf<(&mut Brick, &WallBlock)>),(Without<Ball>, Without<Chunk>)>,
+    mut ball_query: Query<(&mut Transform, &mut Velocity), (With<Ball>,Without<ChunkV2>)>,
+    chunk_query: Query<(&Transform, &ChunkV2), (With<ChunkV2>, Without<Ball>)>,
+    mut brick_query: Query<(&Transform, AnyOf<(&mut Brick, &WallBlock)>),(Without<Ball>, Without<ChunkV2>)>,
     time: Res<Time>,
     mut collision_events: EventWriter<CollisionEvent>
 ) {
@@ -644,7 +714,7 @@ fn check_collider_ball(
         let mut collision: Option<(f32, Collision, Entity)> = None;
 
         //检测chunk是否碰撞
-        for (chunk_transform, children) in &chunk_query {
+        for (chunk_transform, chunk) in &chunk_query {
             if collide(
                 check_box_translation,
                 check_box_size,
@@ -654,9 +724,10 @@ fn check_collider_ball(
                 continue
             }
 
-            for &child in children {
+            
+            for &child in chunk.bricks.keys() {
                 if let Ok(brick_item) = brick_query.get_mut(child) {
-                    let (global_transform, brick_transform, (brick_option, _)) = brick_item;
+                    let (brick_transform, (brick_option, _)) = brick_item;
 
                     if let Some(brick) = brick_option {
                         if brick.destroy {
@@ -667,7 +738,7 @@ fn check_collider_ball(
                     if collide(
                         check_box_translation,
                         check_box_size,
-                        global_transform.translation(),
+                        brick_transform.translation,
                         Vec2::new(BRICK_SIZE.x + GAP_BETWEEN_BRICKS, BRICK_SIZE.y + GAP_BETWEEN_BRICKS),
                     ).is_none() {
                         continue
@@ -677,7 +748,7 @@ fn check_collider_ball(
                         ball_transform.translation.truncate(),
                         ball_transform.scale.x * 0.5,
                         ball_velocity.0,
-                        global_transform.translation().truncate(),
+                        brick_transform.translation.truncate(),
                         Vec2::new(BRICK_SIZE.x + GAP_BETWEEN_BRICKS , BRICK_SIZE.y + GAP_BETWEEN_BRICKS )
                         // brick_transform.scale.truncate(),
                     );
@@ -724,13 +795,13 @@ fn check_collider_ball(
         }
 
         if let Some((toi, collision_type, child)) = collision {
-            let (glabal_transform, _, (brick_option, _)) = brick_query.get_mut(child).unwrap();
+            let (transform,(brick_option, _)) = brick_query.get_mut(child).unwrap();
 
             if let Some(mut brick) = brick_option {
                 brick.destroy = true;
                 commands.entity(child).despawn();
 
-                collision_events.send(CollisionEvent(glabal_transform.translation().truncate()));
+                collision_events.send(CollisionEvent(transform.translation.truncate()));
             } else {
                 // println!("toi: {} collision: {:?} {} ball:{} v:{} delta:{}", toi, collision_type, gt.translation(), ball_transform.translation, ball_velocity.0, time.delta_seconds());
             }
@@ -1013,7 +1084,7 @@ fn read_receive_reward_events(
                     let mut rng = rand::thread_rng();
                     let ball_start_x = paddle_transform.translation.x - PADDLE_SIZE.x / 2.0;
                     let ball_start_y = paddle_transform.translation.x + PADDLE_SIZE.x / 2.0;
-                    let ball_translation = Vec3::new(rng.gen_range(ball_start_x..ball_start_y), paddle_transform.translation.y, 0.0);
+                    let ball_translation = Vec3::new(rng.gen_range(ball_start_x..ball_start_y), paddle_transform.translation.y, 10.0);
                     commands.spawn((
                         MaterialMesh2dBundle {
                             mesh: meshes.add(shape::Circle::default().into()).into(),
