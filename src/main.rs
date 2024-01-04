@@ -1144,14 +1144,33 @@ fn cursor_to_world_system(
     mut cursor_world_coords: ResMut<CursorWorldCoords>,
     q_window: Query<&Window, With<PrimaryWindow>>,
     q_camera: Query<(&Camera, &GlobalTransform)>,
+    touches: Res<Touches>,
  ){
     let (camera, camera_transform) = q_camera.single();
     let window = q_window.single();
- 
-    let Some(cursor_position) = window.cursor_position()
-    else {
-       return;
-    };
+    
+    let mut cursor_position_opt = None;
+    for touch in touches.iter() {
+        // info!(
+        //     "just pressed touch with id: {:?}, at: {:?}",
+        //     touch.id(),
+        //     touch.position()
+        // );
+        cursor_position_opt = Some(touch.position());
+    }
+
+    let cursor_position;
+    if cursor_position_opt.is_none() {
+        if let Some(window_cursor_position) = window.cursor_position() {
+            cursor_position = window_cursor_position;
+        } else {
+            return;
+        }
+    } else {
+        cursor_position = cursor_position_opt.unwrap();
+    }
+    
+   
  
     let Some(point) = camera.viewport_to_world_2d(camera_transform, cursor_position)
     else {
@@ -1160,6 +1179,7 @@ fn cursor_to_world_system(
  
     cursor_world_coords.0 = point;
     // window.cursor.visible = true;
-    
+
+   
     // info!("cursor:{:?}, point:{:?}", cursor_position, point)
  }
