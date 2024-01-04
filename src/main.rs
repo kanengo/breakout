@@ -2,7 +2,7 @@ mod collide;
 mod json_plugin;
 
 use bevy::{
-    prelude::*, sprite::{MaterialMesh2dBundle, collide_aabb::collide, Mesh2dHandle}, input::mouse::MouseMotion, utils::{HashMap}, transform,
+    prelude::*, sprite::{MaterialMesh2dBundle, collide_aabb::collide, Mesh2dHandle}, input::mouse::MouseMotion, utils::{HashMap}, transform, ecs::world, window::PrimaryWindow,
 };
 use bevy::sprite::collide_aabb::Collision;
 use json_plugin::JsonAssetPlugin;
@@ -187,6 +187,9 @@ enum AppState {
     Level,
 }
 
+#[derive(Resource,Default, Deref, DerefMut)]
+struct CursorWorldCoords(Vec2);
+
 fn main() {
     App::new()
         .add_plugins((
@@ -201,6 +204,7 @@ fn main() {
             JsonAssetPlugin::<Level>::new(&["json"])
         ))
         .add_state::<AppState>()
+        .init_resource::<CursorWorldCoords>()
         .insert_resource(BrickCounter(100))
         .insert_resource(ClearColor(BACKGROUND_COLOR))
         .insert_resource(ShowWindowInfoTimer::new())
@@ -215,6 +219,7 @@ fn main() {
         ))
         .add_systems(Update, spawn_level.run_if(in_state(AppState::Loading)))
         .add_systems(Update,(
+            cursor_to_world_system,
             check_ball_out_range,
             read_collision_events,
             read_gen_reward_events,
@@ -284,9 +289,13 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    mut score: ResMut<Score>,
+    mut q_window: Query<&mut Window, With<PrimaryWindow>>,
     asset_server: Res<AssetServer>,
 ) {
+
+    let mut window = q_window.single_mut();
+    window.cursor.visible = false;
+
     //camera
     commands.spawn(Camera2dBundle::default());
 
@@ -328,7 +337,7 @@ fn setup(
     let mut rng = rand::thread_rng();
     let ball_start_x = paddle_translation.x - PADDLE_SIZE.x / 2.0;
     let ball_start_y = paddle_translation.x + PADDLE_SIZE.x / 2.0;
-    let ball_translation = Vec3::new(rng.gen_range(ball_start_x..ball_start_y), paddle_translation.y, 1.0);
+    let ball_translation = Vec3::new(rng.gen_range(ball_start_x..ball_start_y), paddle_translation.y, 10.0);
     commands.spawn((
         MaterialMesh2dBundle {
             mesh: meshes.add(shape::Circle::default().into()).into(),
@@ -362,7 +371,7 @@ fn spawn_level(
     mut levels: ResMut<Assets<Level>>,
     level_handle: Res<LevelHandler>,
     mut state: ResMut<NextState<AppState>>,
-){
+){ 
     if let Some(level) = levels.remove(level_handle.0.id()) {
         // println!("level:{:?}", level);
         let chunk_size = Vec2::new(
@@ -585,6 +594,7 @@ fn move_paddle(
     keyboard_input: Res<Input<KeyCode>>,
     time: Res<Time>,
     mut query: Query<&mut Transform, With<Paddle>>,
+    cursor_world_coords: Res<CursorWorldCoords>,
 ) {
     let mut paddle_transform = query.single_mut();
 
@@ -594,6 +604,7 @@ fn move_paddle(
         paddle_transform.translation.x += PADDLE_SPEED * time.delta_seconds();
     }
 
+    paddle_transform.translation.x = cursor_world_coords.x;
     
 
     let left_bound = LEFT_EDGE + paddle_transform.scale.x / 2.0;
@@ -645,7 +656,7 @@ fn check_ball_out_range(
                 let mut rng = rand::thread_rng();
                 let ball_start_x = paddle_transform.translation.x - PADDLE_SIZE.x / 2.0;
                 let ball_start_y = paddle_transform.translation.x + PADDLE_SIZE.x / 2.0;
-                let ball_translation = Vec3::new(rng.gen_range(ball_start_x..ball_start_y), paddle_transform.translation.y, 0.0);
+                let ball_translation = Vec3::new(rng.gen_range(ball_start_x..ball_start_y), paddle_transform.translation.y, 10.0);
                 commands.spawn((
                     MaterialMesh2dBundle {
                         mesh: meshes.add(shape::Circle::default().into()).into(),
@@ -1129,5 +1140,26 @@ fn print_mouse_events(
     }
 }
 
-
-
+fn cursor_to_world_system(
+    mut cursor_world_coords: ResMut<CursorWorldCoords>,
+    q_window: Query<&Window, With<PrimaryWindow>>,
+    q_camera: Query<(&Camera, &GlobalTransform)>,
+ ){
+    let (camera, camera_transform) = q_camera.single();
+    let window = q_window.single();
+ 
+    let Some(cursor_position) = window.cursor_position()
+    else {
+       return;
+    };
+ 
+    let Some(point) = camera.viewport_to_world_2d(camera_transform, cursor_position)
+    else {
+       return;
+    };
+ 
+    cursor_world_coords.0 = point;
+    // window.cursor.visible = true;
+    
+    // info!("cursor:{:?}, point:{:?}", cursor_position, point)
+ }
