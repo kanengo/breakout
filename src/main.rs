@@ -9,8 +9,8 @@ use json_plugin::JsonAssetPlugin;
 use rand::Rng;
 use serde::{Serialize, Deserialize};
 
-const SCREEN_SIZE:(f32, f32) = (900.0, 860.0);
-const EDGE_SIZE:(f32, f32) = (840.0, 840.0);
+const SCREEN_SIZE:(f32, f32) = (720.0, 960.0);
+const EDGE_SIZE:(f32, f32) = (680.0, 900.0);
 
 const PADDLE_SIZE: Vec3 = Vec3::new(80.0, 10.0, 0.0);
 const PADDLE_COLOR: Color = Color::WHITE;
