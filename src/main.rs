@@ -2,7 +2,7 @@ mod collide;
 mod json_plugin;
 
 use bevy::{
-    prelude::*, sprite::{MaterialMesh2dBundle, collide_aabb::collide, Mesh2dHandle}, input::mouse::MouseMotion, utils::{HashMap}, transform, ecs::world, window::PrimaryWindow,
+    prelude::*, sprite::{MaterialMesh2dBundle, collide_aabb::collide, Mesh2dHandle}, input::mouse::MouseMotion, utils::{HashMap}, transform, ecs::world, window::{PrimaryWindow, WindowResolution},
 };
 use bevy::sprite::collide_aabb::Collision;
 use json_plugin::JsonAssetPlugin;
@@ -196,7 +196,7 @@ fn main() {
             DefaultPlugins.set(WindowPlugin {
                 primary_window: Some(Window {
                     title: "breakout".into(),
-                    resolution: SCREEN_SIZE.into(),
+                    resolution: WindowResolution::new(SCREEN_SIZE.0, SCREEN_SIZE.1),
                     ..default()
                  }),
                 ..default()
@@ -224,6 +224,7 @@ fn main() {
             read_collision_events,
             read_gen_reward_events,
             read_receive_reward_events,
+            show_info,
             // draw_chunk_rect,
             // print_mouse_events,
         )
@@ -252,12 +253,12 @@ fn show_info(windows: Query<&Window>, time: Res<Time>, mut timer: ResMut<ShowWin
         // The size after scaling:
         let logical_width = window.width();
         let logical_height = window.height();
-        println!("Logical size: {:?} x {:?}", logical_width, logical_height);
+        println!("Logical size: {:?} x {:?} {}", logical_width, logical_height, window.scale_factor());
 
         // The size before scaling:
         let physical_width = window.physical_width();
         let physical_height = window.physical_height();
-        println!("physical size: {:?} x {:?}", physical_width, physical_height);
+        println!("physical size: {:?} x {:?} {}", physical_width, physical_height, window.scale_factor());
 
         // Cursor position in logical sizes, this would return None if our
         // cursor is outside of the window:
@@ -313,7 +314,7 @@ fn setup(
     });
 
     //paddle
-    let paddle_translation = Vec3::new(0.0, -300.0, 0.0);
+    let paddle_translation = Vec3::new(0.0, -200.0, 0.0);
     commands.spawn((
         SpriteBundle {
             transform: Transform {
